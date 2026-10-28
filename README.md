@@ -6,7 +6,10 @@ A lightweight, 100% serverless automated ticket tracker for **BookMyShow Karwar*
 
 ## 🌟 Key Features
 
-- **Serverless & Zero-Cost:** Runs entirely on GitHub Actions cron workflows (every 15–20 minutes) with no external servers, VPS, or paid daemons.
+- **Next.js Real-Time Web Dashboard:** A sleek, responsive web UI (hosted on Vercel) showing current live ticket status, region parameters, and activity logs.
+- **On-Demand Manual Trigger:** A "Run Live Check Now" button on the web dashboard to trigger the scraper instantly and view findings on-screen.
+- **Webhook Test Button:** One-click "Send Test Discord Alert" button directly on the website to verify webhook connectivity anytime.
+- **Serverless & Zero-Cost:** Runs both on Vercel (frontend & API routes) and GitHub Actions cron workflows (every 20 minutes) with no paid servers.
 - **Karwar Focused:** Monitors BookMyShow's Karwar region (`karwar`) including single-screen and multiplex venues like *Miraj Cinemas: Geetanjali, Karwar*.
 - **Multi-Layer Scraper Architecture (`tracker.js`):**
   - **Layer 1 (Next.js SSR Hydration):** Extracts and deeply traverses the structured `__NEXT_DATA__` JSON payload embedded in BookMyShow pages.
@@ -15,7 +18,20 @@ A lightweight, 100% serverless automated ticket tracker for **BookMyShow Karwar*
 - **Smart Anti-Bot Strategy:** Clean browser-like headers (`User-Agent`, `Accept`, `Sec-Ch-Ua`, `Referer`), regional cookie simulation, and exponential backoff retries.
 - **Deduplication State (`state.json`):** Tracks notification history and commits state back to the repository so you receive an instant alert when bookings open, without getting spammed every 20 minutes thereafter.
 - **Rich Discord Alerts:** Dispatches a mobile push-optimized Discord embed with the movie title, direct booking button, monitored theater names, and `@everyone` ping.
-- **One-Click Test Mode:** Supports instant test alert dispatch (`npm run test-alert` or manual GitHub Actions trigger) to verify your webhook before release day.
+
+---
+
+## ⚡ Deploying the Frontend to Vercel (1-Click)
+
+1. Go to **[vercel.com](https://vercel.com)** and log in with your GitHub account.
+2. Click **"Add New..."** ➔ **"Project"**.
+3. Import your **`Chethan886/BookMyShow-Tracker`** repository.
+4. Under **Environment Variables**, add:
+   - `DISCORD_WEBHOOK_URL`: `https://discord.com/api/webhooks/...`
+   - `DISCORD_MENTION`: `@everyone` (optional, default: `@everyone`)
+   - `BMS_REGION`: `karwar` (optional, default: `karwar`)
+5. Click **"Deploy"**.
+6. In ~1 minute, your live website will be accessible with full manual trigger controls!
 
 ---
 

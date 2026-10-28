@@ -674,10 +674,22 @@ async function main() {
   console.log(`[DONE] Tracker run finished successfully.`);
 }
 
-// Execute and handle uncaught rejections cleanly
-main().catch(err => {
-  console.error(`[FATAL] Unhandled fatal error:`, err);
-  // Exit code 0 for soft failures in cron, or 1 if test mode
-  process.exit(CONFIG.testMode ? 1 : 0);
-});
+// Export modules for Next.js API routes
+module.exports = {
+  checkMovieAvailability,
+  sendTicketsLiveAlert,
+  sendTestAlert,
+  loadState,
+  saveState,
+  CONFIG,
+  URLS,
+};
+
+// Execute if run directly from CLI / GitHub Actions
+if (require.main === module) {
+  main().catch(err => {
+    console.error(`[FATAL] Unhandled fatal error:`, err);
+    process.exit(CONFIG.testMode ? 1 : 0);
+  });
+}
 

@@ -38,7 +38,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # Fetch full history to ensure smooth state commit pushes
           fetch-depth: 1
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -62,7 +61,7 @@ jobs:
         run: node tracker.js
 
       - name: Commit and push state changes
-        if: always() # Run even if prior steps had warnings
+        if: always()
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
@@ -71,12 +70,15 @@ jobs:
           if [ -f state.json ]; then
             git add state.json
             if ! git diff --cached --quiet; then
-              echo "Changes detected in state.json. Committing and pushing..."
-              git commit -m "chore(tracker): update ticket state [skip ci]"
+              echo "Changes detected in state.json. Committing..."
+              git commit -m "chore(tracker): update ticket state [skip ci]" || true
               git pull --rebase origin main || true
-              git push origin main || git push
+              if ! git push origin main; then
+                echo "::warning::Git push failed. Ensure 'Workflow permissions' are set to 'Read and write permissions' in repository Settings -> Actions -> General."
+              else
+                echo "Successfully pushed updated state.json to repository."
+              fi
             else
               echo "No state changes to commit."
             fi
           fi
-

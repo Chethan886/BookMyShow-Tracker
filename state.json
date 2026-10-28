@@ -1,0 +1,9 @@
+{
+  "alertSent": false,
+  "lastCheckTime": null,
+  "lastStatus": "INITIALIZED",
+  "detectedTitle": null,
+  "bookingUrl": null,
+  "theaters": [],
+  "lastAlertSentTime": null
+}

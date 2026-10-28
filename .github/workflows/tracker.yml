@@ -1,0 +1,81 @@
+name: BookMyShow Karwar Ticket Tracker
+
+on:
+  # Scheduled cron execution (runs every 20 minutes)
+  schedule:
+    - cron: '*/20 * * * *'
+
+  # Manual trigger with options for testing and forcing alerts
+  workflow_dispatch:
+    inputs:
+      test_alert:
+        description: 'Send test Discord alert to verify webhook'
+        required: false
+        default: false
+        type: boolean
+      force_alert:
+        description: 'Force alert even if tickets were previously flagged as live'
+        required: false
+        default: false
+        type: boolean
+
+# Required for committing state.json back to repository
+permissions:
+  contents: write
+
+# Prevent concurrent runs from conflicting with git push
+concurrency:
+  group: bms-tracker
+  cancel-in-progress: false
+
+jobs:
+  track-tickets:
+    name: Check Ticket Availability
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history to ensure smooth state commit pushes
+          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Tracker Script
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_MENTION: ${{ vars.DISCORD_MENTION || '@everyone' }}
+          BMS_REGION: ${{ vars.BMS_REGION || 'karwar' }}
+          TARGET_KEYWORDS: ${{ vars.TARGET_KEYWORDS || 'Ramayana,Ramayana: Part 1,Ramayana - Part 1' }}
+          TEST_ALERT: ${{ inputs.test_alert || 'false' }}
+          FORCE_ALERT: ${{ inputs.force_alert || 'false' }}
+        run: node tracker.js
+
+      - name: Commit and push state changes
+        if: always() # Run even if prior steps had warnings
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Only commit if state.json was modified
+          if [ -f state.json ]; then
+            git add state.json
+            if ! git diff --cached --quiet; then
+              echo "Changes detected in state.json. Committing and pushing..."
+              git commit -m "chore(tracker): update ticket state [skip ci]"
+              git pull --rebase origin main || true
+              git push origin main || git push
+            else
+              echo "No state changes to commit."
+            fi
+          fi

@@ -680,3 +680,4 @@ main().catch(err => {
   // Exit code 0 for soft failures in cron, or 1 if test mode
   process.exit(CONFIG.testMode ? 1 : 0);
 });
+

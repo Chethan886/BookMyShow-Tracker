@@ -170,3 +170,4 @@ Verify that your webhook and workflow are working:
 - **Soft Failures in Cron:** Third-party drops or temporary 503/403 responses are caught and handled gracefully without failing the GitHub Actions job, preventing annoying GitHub error emails.
 - **Exponential Backoff:** If BookMyShow takes longer to respond, requests are retried with 2.5s, 3.8s, and 5.7s intervals.
 - **Concurrent Run Protection:** The GitHub Actions workflow defines `concurrency: bms-tracker` so overlapping runs do not cause git push conflicts.
+

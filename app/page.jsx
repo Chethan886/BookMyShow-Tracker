@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Film,
   MapPin,
@@ -12,8 +12,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   Radio,
-  Terminal,
-  Layers,
   Sparkles,
   Plus,
   Trash2,
@@ -23,18 +21,6 @@ import {
   ChevronDown,
   Compass,
 } from 'lucide-react';
-
-function GitHubIcon({ className = 'w-4 h-4' }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"
-      />
-    </svg>
-  );
-}
 
 // Preset popular places on BookMyShow
 const POPULAR_PLACES = [
@@ -107,13 +93,7 @@ export default function TrackerDashboard() {
   const [customPlaceSlug, setCustomPlaceSlug] = useState('');
   const [addingMovie, setAddingMovie] = useState(false);
 
-  const [logs, setLogs] = useState([]);
   const [feedback, setFeedback] = useState(null);
-
-  const addLog = (msg) => {
-    const time = new Date().toLocaleTimeString();
-    setLogs((prev) => [`[${time}] ${msg}`, ...prev.slice(0, 49)]);
-  };
 
   // Fetch initial state & settings
   const fetchInitialData = async () => {
@@ -142,11 +122,9 @@ export default function TrackerDashboard() {
         try {
           localStorage.setItem('bms_tracked_movies', JSON.stringify(moviesData.movies));
         } catch {}
-        addLog(`Loaded ${moviesData.movies.length} movie(s) across regions.`);
       }
     } catch (err) {
-      addLog(`Failed to fetch initial settings: ${err.message}`);
-      // Fallback to localStorage
+      console.warn('Failed to fetch initial settings:', err.message);
       try {
         const cached = localStorage.getItem('bms_tracked_movies');
         if (cached) setMovies(JSON.parse(cached));
@@ -158,7 +136,6 @@ export default function TrackerDashboard() {
 
   useEffect(() => {
     fetchInitialData();
-    addLog('System initialized. Multi-region ticket tracker active.');
   }, []);
 
   // Auto-Check Countdown & Polling Loop
@@ -168,8 +145,6 @@ export default function TrackerDashboard() {
     const timer = setInterval(() => {
       setCountdownSeconds((prev) => {
         if (prev <= 1) {
-          // Trigger automated check
-          addLog(`[AUTO-CHECK] Timer fired (Every ${intervalMinutes}m). Scraping BookMyShow...`);
           handleCheckAllMovies(true);
           return intervalMinutes * 60;
         }
@@ -194,7 +169,6 @@ export default function TrackerDashboard() {
     setActiveRegion(slug);
     setActiveRegionName(name);
     setShowPlaceModal(false);
-    addLog(`📍 Location changed to: ${name} (${slug})`);
 
     try {
       await fetch('/api/settings', {
@@ -215,11 +189,6 @@ export default function TrackerDashboard() {
   const handleChangeInterval = async (minutes) => {
     setIntervalMinutes(minutes);
     setCountdownSeconds(minutes * 60);
-    addLog(
-      minutes > 0
-        ? `⏱️ Auto-check interval set to every ${minutes} minute(s).`
-        : '⏱️ Auto-check disabled (Manual checks only).'
-    );
 
     try {
       await fetch('/api/settings', {
@@ -242,7 +211,6 @@ export default function TrackerDashboard() {
     try {
       setAddingMovie(true);
       const chosenRegion = newMovieRegion || activeRegion;
-      addLog(`Adding "${newTitle.trim()}" in [${chosenRegion.toUpperCase()}] to tracker...`);
 
       const res = await fetch('/api/movies', {
         method: 'POST',
@@ -261,11 +229,10 @@ export default function TrackerDashboard() {
         setNewTitle('');
         setNewKeywords('');
         setShowAddModal(false);
-        addLog(`✅ "${data.movie.title}" added to [${chosenRegion.toUpperCase()}]!`);
         setFeedback({
           type: 'success',
           title: 'Movie Added!',
-          msg: `"${data.movie.title}" is now monitored in ${chosenRegion.toUpperCase()}.`,
+          msg: `"${data.movie.title}" is now being monitored in ${chosenRegion.toUpperCase()}.`,
         });
         try {
           localStorage.setItem('bms_tracked_movies', JSON.stringify(data.movies));
@@ -274,7 +241,6 @@ export default function TrackerDashboard() {
         throw new Error(data.error || 'Failed to add movie');
       }
     } catch (err) {
-      addLog(`❌ Error adding movie: ${err.message}`);
       setFeedback({
         type: 'error',
         title: 'Could Not Add Movie',
@@ -291,7 +257,6 @@ export default function TrackerDashboard() {
     if (!confirm(`Are you sure you want to stop tracking "${movieTitle}"?`)) return;
 
     try {
-      addLog(`Removing "${movieTitle}" from tracker...`);
       const res = await fetch(`/api/movies?id=${movieId}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
@@ -299,13 +264,12 @@ export default function TrackerDashboard() {
         if (activeMovieId === movieId) {
           setActiveMovieId(data.movies[0]?.id || 'ramayana');
         }
-        addLog(`🗑️ Removed "${movieTitle}".`);
         try {
           localStorage.setItem('bms_tracked_movies', JSON.stringify(data.movies));
         } catch {}
       }
     } catch (err) {
-      addLog(`❌ Failed to remove movie: ${err.message}`);
+      console.warn('Failed to remove movie:', err.message);
     }
   };
 
@@ -316,7 +280,6 @@ export default function TrackerDashboard() {
       setRunningTrack(true);
       setFeedback(null);
       const reg = activeMovie.region || activeRegion;
-      addLog(`Scraping BookMyShow ${reg.toUpperCase()} for "${activeMovie.title}"...`);
 
       const res = await fetch('/api/track', {
         method: 'POST',
@@ -335,10 +298,6 @@ export default function TrackerDashboard() {
         );
 
         if (result.isLive) {
-          addLog(`🎉 LIVE! Tickets are AVAILABLE for "${result.movieTitle}" in ${reg.toUpperCase()}!`);
-          if (alertDispatched) {
-            addLog(`📢 Instant push alert sent to Discord @everyone!`);
-          }
           setFeedback({
             type: 'success',
             title: 'TICKETS ARE LIVE!',
@@ -347,14 +306,12 @@ export default function TrackerDashboard() {
             }`,
           });
         } else if (result.isFound) {
-          addLog(`ℹ️ "${result.movieTitle}" is listed on BookMyShow ${reg.toUpperCase()}, but showtimes are not yet open.`);
           setFeedback({
             type: 'info',
             title: 'Movie Listed (Coming Soon)',
             msg: `"${result.movieTitle}" is visible on ${reg.toUpperCase()} pages, but booking is not yet active.`,
           });
         } else {
-          addLog(`ℹ️ "${activeMovie.title}" is not yet listed in ${reg.toUpperCase()}.`);
           setFeedback({
             type: 'warning',
             title: 'Not Yet Listed',
@@ -365,7 +322,6 @@ export default function TrackerDashboard() {
         throw new Error(data.error || 'Check execution failed');
       }
     } catch (err) {
-      addLog(`❌ Error: ${err.message}`);
       setFeedback({
         type: 'error',
         title: 'Check Finished',
@@ -373,7 +329,6 @@ export default function TrackerDashboard() {
       });
     } finally {
       setRunningTrack(false);
-      // Reset countdown on manual check
       if (intervalMinutes > 0) setCountdownSeconds(intervalMinutes * 60);
     }
   };
@@ -383,7 +338,6 @@ export default function TrackerDashboard() {
     try {
       setRunningTrack(true);
       if (!isAuto) setFeedback(null);
-      addLog(`Checking all ${movies.length} movie(s) across selected places on BookMyShow...`);
 
       const res = await fetch('/api/track', {
         method: 'POST',
@@ -397,27 +351,22 @@ export default function TrackerDashboard() {
         const liveMovies = (data.results || []).filter((r) => r.isLive);
 
         if (liveMovies.length > 0) {
-          addLog(`🎉 LIVE TICKETS DETECTED for: ${liveMovies.map((r) => r.movieTitle).join(', ')}!`);
           setFeedback({
             type: 'success',
             title: 'LIVE TICKETS FOUND!',
             msg: `Tickets are LIVE for: ${liveMovies.map((r) => r.movieTitle).join(', ')}!`,
           });
-        } else {
-          addLog(`ℹ️ All ${movies.length} movie(s) checked. No live bookings found yet.`);
-          if (!isAuto) {
-            setFeedback({
-              type: 'info',
-              title: 'Batch Check Complete',
-              msg: `Checked all ${movies.length} movies. Auto-check continues at your chosen interval.`,
-            });
-          }
+        } else if (!isAuto) {
+          setFeedback({
+            type: 'info',
+            title: 'Batch Check Complete',
+            msg: `Checked all ${movies.length} movies. Auto-check continues at your chosen interval.`,
+          });
         }
       } else {
         throw new Error(data.error || 'Batch check failed');
       }
     } catch (err) {
-      addLog(`❌ Error: ${err.message}`);
       if (!isAuto) {
         setFeedback({
           type: 'error',
@@ -436,13 +385,11 @@ export default function TrackerDashboard() {
     try {
       setSendingAlert(true);
       setFeedback(null);
-      addLog(`Sending test notification to Discord webhook for [${activeRegion.toUpperCase()}]...`);
 
       const res = await fetch('/api/test-alert', { method: 'POST' });
       const data = await res.json();
 
       if (data.success) {
-        addLog('✅ Discord test webhook delivered successfully (HTTP 204)!');
         setFeedback({
           type: 'success',
           title: 'Discord Test Alert Sent!',
@@ -452,7 +399,6 @@ export default function TrackerDashboard() {
         throw new Error(data.error || 'Failed to dispatch webhook');
       }
     } catch (err) {
-      addLog(`❌ Webhook error: ${err.message}`);
       setFeedback({
         type: 'error',
         title: 'Webhook Test Failed',
@@ -478,7 +424,7 @@ export default function TrackerDashboard() {
   };
 
   return (
-    <main className="min-h-screen text-slate-100 p-4 md:p-8 max-w-6xl mx-auto">
+    <main className="min-h-screen text-slate-100 p-4 md:p-8 max-w-4xl mx-auto">
       {/* Top Navbar */}
       <header className="flex flex-col md:flex-row items-start md:items-center justify-between pb-6 border-b border-slate-800 gap-4">
         <div className="flex items-center gap-3">
@@ -498,7 +444,7 @@ export default function TrackerDashboard() {
           </div>
         </div>
 
-        {/* Global Controls: Place, Interval, Refresh, GitHub */}
+        {/* Controls: Place, Interval, Add Movie, Refresh, BookMyShow */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Place Selector Pill */}
           <button
@@ -544,15 +490,6 @@ export default function TrackerDashboard() {
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
-
-          <a
-            href="https://github.com/Chethan886/BookMyShow-Tracker"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700 text-sm hidden sm:flex items-center gap-1.5"
-          >
-            <GitHubIcon className="w-4 h-4" />
-          </a>
 
           <a
             href={`https://in.bookmyshow.com/explore/movies-${activeRegion}`}
@@ -682,258 +619,177 @@ export default function TrackerDashboard() {
         </div>
       )}
 
-      {/* Main Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-5">
-        {/* Left Column: Live Status & Details (2 Cols) */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Hero Status Card for Active Movie */}
-          <div className="glass-panel rounded-2xl p-6 relative overflow-hidden border">
-            {/* Background Glow */}
-            <div
-              className={`absolute -right-20 -top-20 w-64 h-64 rounded-full blur-3xl opacity-20 pointer-events-none ${
-                isLive ? 'bg-emerald-500' : 'bg-bms-red'
-              }`}
-            />
+      {/* Main Content Area */}
+      <div className="space-y-6 mt-5">
+        {/* Hero Status Card for Active Movie */}
+        <div className="glass-panel rounded-2xl p-6 relative overflow-hidden border">
+          {/* Background Glow */}
+          <div
+            className={`absolute -right-20 -top-20 w-64 h-64 rounded-full blur-3xl opacity-20 pointer-events-none ${
+              isLive ? 'bg-emerald-500' : 'bg-bms-red'
+            }`}
+          />
 
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-5 border-b border-slate-800/80">
-              <div className="space-y-1">
-                <div className="text-xs uppercase tracking-wider text-slate-400 font-medium flex items-center gap-1.5">
-                  <Compass className="w-3.5 h-3.5 text-bms-red" />
-                  Availability Status in {(activeMovie.region || activeRegion).toUpperCase()}
-                </div>
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`w-3.5 h-3.5 rounded-full ${
-                      isLive
-                        ? 'bg-emerald-400 animate-ping'
-                        : isListed
-                        ? 'bg-amber-400 animate-pulse'
-                        : 'bg-rose-500'
-                    }`}
-                  />
-                  <h2 className="text-2xl font-extrabold text-white">
-                    {isLive
-                      ? 'TICKETS LIVE & BOOKABLE!'
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-5 border-b border-slate-800/80">
+            <div className="space-y-1">
+              <div className="text-xs uppercase tracking-wider text-slate-400 font-medium flex items-center gap-1.5">
+                <Compass className="w-3.5 h-3.5 text-bms-red" />
+                Availability Status in {(activeMovie.region || activeRegion).toUpperCase()}
+              </div>
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-3.5 h-3.5 rounded-full ${
+                    isLive
+                      ? 'bg-emerald-400 animate-ping'
                       : isListed
-                      ? 'LISTED (COMING SOON)'
-                      : 'MONITORING (NOT YET LIVE)'}
-                  </h2>
-                </div>
-              </div>
-
-              <div
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider border ${
-                  isLive
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 glow-active'
+                      ? 'bg-amber-400 animate-pulse'
+                      : 'bg-rose-500'
+                  }`}
+                />
+                <h2 className="text-2xl font-extrabold text-white">
+                  {isLive
+                    ? 'TICKETS LIVE & BOOKABLE!'
                     : isListed
-                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                    : 'bg-slate-800 text-slate-400 border-slate-700'
-                }`}
-              >
-                {activeMovie.lastStatus || 'INITIALIZED'}
+                    ? 'LISTED (COMING SOON)'
+                    : 'MONITORING (NOT YET LIVE)'}
+                </h2>
               </div>
             </div>
 
-            {/* Target Parameters */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
-              <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
-                <div className="text-xs text-slate-400 flex items-center gap-1.5 mb-1">
-                  <Film className="w-3.5 h-3.5 text-bms-red" />
-                  Target Movie
-                </div>
-                <div className="text-sm font-bold text-white truncate">{activeMovie.title}</div>
-                <div className="text-[11px] text-slate-400 mt-0.5 truncate">
-                  {activeMovie.keywords && activeMovie.keywords.length > 1
-                    ? activeMovie.keywords.slice(0, 2).join(', ')
-                    : 'Exact & Dub match'}
-                </div>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
-                <div className="text-xs text-slate-400 flex items-center gap-1.5 mb-1">
-                  <MapPin className="w-3.5 h-3.5 text-rose-400" />
-                  Monitored Place
-                </div>
-                <div className="text-sm font-bold text-white truncate">{moviePlace.name}</div>
-                <div className="text-[11px] text-slate-400 mt-0.5 font-mono">
-                  Slug: {activeMovie.region || activeRegion}
-                </div>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
-                <div className="text-xs text-slate-400 flex items-center gap-1.5 mb-1">
-                  <Radio className="w-3.5 h-3.5 text-indigo-400" />
-                  Theaters / Venues
-                </div>
-                <div className="text-sm font-bold text-white truncate">
-                  {moviePlace.cinema || 'Local Cinemas'}
-                </div>
-                <div className="text-[11px] text-slate-400 mt-0.5 truncate">
-                  BookMyShow Catalog
-                </div>
-              </div>
-            </div>
-
-            {/* Timestamps & Booking Link */}
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between text-xs text-slate-400 gap-3 mt-5 pt-4 border-t border-slate-800/80">
-              <div className="flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5" />
-                <span>Last Checked: </span>
-                <span className="text-slate-200 font-medium">
-                  {activeMovie.lastCheckTime
-                    ? new Date(activeMovie.lastCheckTime).toLocaleString()
-                    : 'Not yet checked'}
-                </span>
-              </div>
-
-              {activeMovie.bookingUrl && (
-                <a
-                  href={activeMovie.bookingUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-bms-red hover:text-rose-400 flex items-center gap-1 font-semibold transition-colors"
-                >
-                  Book on BookMyShow
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              )}
+            <div
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider border ${
+                isLive
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 glow-active'
+                  : isListed
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                  : 'bg-slate-800 text-slate-400 border-slate-700'
+              }`}
+            >
+              {activeMovie.lastStatus || 'INITIALIZED'}
             </div>
           </div>
 
-          {/* Action Center (Manual Triggers) */}
-          <div className="glass-panel rounded-2xl p-6 border">
-            <h3 className="text-base font-bold text-white flex items-center gap-2 mb-2">
-              <Sparkles className="w-4 h-4 text-bms-red" />
-              Manual Control Center
-            </h3>
-            <p className="text-xs text-slate-400 mb-5">
-              Run instant checks on-demand for <strong>{activeMovie.title}</strong>, check all {movies.length} movies, or test Discord alerts.
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-              <button
-                onClick={handleCheckActiveMovie}
-                disabled={runningTrack}
-                className="p-3.5 rounded-xl bg-gradient-to-r from-bms-red to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-semibold flex items-center justify-center gap-2 transition-all shadow-lg shadow-bms-red/25 disabled:opacity-50 text-xs sm:text-sm"
-              >
-                {runningTrack ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Scraping...</span>
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4 fill-white" />
-                    <span>Check "{activeMovie.title}"</span>
-                  </>
-                )}
-              </button>
-
-              <button
-                onClick={() => handleCheckAllMovies()}
-                disabled={runningTrack}
-                className="p-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold border border-slate-700 flex items-center justify-center gap-2 transition-all disabled:opacity-50 text-xs sm:text-sm"
-              >
-                <RefreshCw className="w-4 h-4 text-emerald-400" />
-                <span>Check All ({movies.length})</span>
-              </button>
-
-              <button
-                onClick={handleSendTestAlert}
-                disabled={sendingAlert}
-                className="p-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold border border-slate-700 flex items-center justify-center gap-2 transition-all disabled:opacity-50 text-xs sm:text-sm"
-              >
-                {sendingAlert ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
-                    <span>Sending...</span>
-                  </>
-                ) : (
-                  <>
-                    <Send className="w-4 h-4 text-indigo-400" />
-                    <span>Test Discord</span>
-                  </>
-                )}
-              </button>
+          {/* Target Parameters */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
+            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
+              <div className="text-xs text-slate-400 flex items-center gap-1.5 mb-1">
+                <Film className="w-3.5 h-3.5 text-bms-red" />
+                Target Movie
+              </div>
+              <div className="text-sm font-bold text-white truncate">{activeMovie.title}</div>
+              <div className="text-[11px] text-slate-400 mt-0.5 truncate">
+                {activeMovie.keywords && activeMovie.keywords.length > 1
+                  ? activeMovie.keywords.slice(0, 2).join(', ')
+                  : 'Exact & Dub match'}
+              </div>
             </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
+              <div className="text-xs text-slate-400 flex items-center gap-1.5 mb-1">
+                <MapPin className="w-3.5 h-3.5 text-rose-400" />
+                Monitored Place
+              </div>
+              <div className="text-sm font-bold text-white truncate">{moviePlace.name}</div>
+              <div className="text-[11px] text-slate-400 mt-0.5 font-mono">
+                Slug: {activeMovie.region || activeRegion}
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
+              <div className="text-xs text-slate-400 flex items-center gap-1.5 mb-1">
+                <Radio className="w-3.5 h-3.5 text-indigo-400" />
+                Theaters / Venues
+              </div>
+              <div className="text-sm font-bold text-white truncate">
+                {moviePlace.cinema || 'Local Cinemas'}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-0.5 truncate">
+                BookMyShow Catalog
+              </div>
+            </div>
+          </div>
+
+          {/* Timestamps & Booking Link */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between text-xs text-slate-400 gap-3 mt-5 pt-4 border-t border-slate-800/80">
+            <div className="flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5" />
+              <span>Last Checked: </span>
+              <span className="text-slate-200 font-medium">
+                {activeMovie.lastCheckTime
+                  ? new Date(activeMovie.lastCheckTime).toLocaleString()
+                  : 'Not yet checked'}
+              </span>
+            </div>
+
+            {activeMovie.bookingUrl && (
+              <a
+                href={activeMovie.bookingUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-bms-red hover:text-rose-400 flex items-center gap-1 font-semibold transition-colors"
+              >
+                Book on BookMyShow
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
           </div>
         </div>
 
-        {/* Right Column: Realtime Console & Architecture */}
-        <div className="space-y-6">
-          {/* Terminal Logs */}
-          <div className="glass-panel rounded-2xl p-5 border flex flex-col h-[340px]">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div className="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                <Terminal className="w-4 h-4 text-emerald-400" />
-                Live Activity Log
-              </div>
-              <span className="text-[10px] text-slate-400 px-1.5 py-0.5 rounded bg-slate-800">
-                Realtime
-              </span>
-            </div>
+        {/* Action Center (Manual Triggers) */}
+        <div className="glass-panel rounded-2xl p-6 border">
+          <h3 className="text-base font-bold text-white flex items-center gap-2 mb-2">
+            <Sparkles className="w-4 h-4 text-bms-red" />
+            Manual Control Center
+          </h3>
+          <p className="text-xs text-slate-400 mb-5">
+            Run instant checks on-demand for <strong>{activeMovie.title}</strong>, check all {movies.length} movies, or test Discord alerts.
+          </p>
 
-            <div className="flex-1 overflow-y-auto mt-3 space-y-1.5 font-mono text-[11px] text-slate-300 pr-1">
-              {logs.map((log, index) => (
-                <div
-                  key={index}
-                  className={`leading-relaxed ${
-                    log.includes('🎉')
-                      ? 'text-emerald-400 font-bold'
-                      : log.includes('❌')
-                      ? 'text-rose-400 font-bold'
-                      : log.includes('✅')
-                      ? 'text-emerald-300'
-                      : 'text-slate-400'
-                  }`}
-                >
-                  {log}
-                </div>
-              ))}
-            </div>
-          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+            <button
+              onClick={handleCheckActiveMovie}
+              disabled={runningTrack}
+              className="p-3.5 rounded-xl bg-gradient-to-r from-bms-red to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-semibold flex items-center justify-center gap-2 transition-all shadow-lg shadow-bms-red/25 disabled:opacity-50 text-xs sm:text-sm"
+            >
+              {runningTrack ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Scraping...</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4 fill-white" />
+                  <span>Check "{activeMovie.title}"</span>
+                </>
+              )}
+            </button>
 
-          {/* Architecture & Settings Card */}
-          <div className="glass-panel rounded-2xl p-5 border text-xs space-y-3">
-            <div className="font-semibold text-slate-200 flex items-center justify-between">
-              <span className="flex items-center gap-1.5">
-                <Layers className="w-4 h-4 text-indigo-400" />
-                Active Configuration
-              </span>
-              <button
-                onClick={() => setShowPlaceModal(true)}
-                className="text-[11px] text-bms-red hover:text-rose-400"
-              >
-                Change Place
-              </button>
-            </div>
+            <button
+              onClick={() => handleCheckAllMovies()}
+              disabled={runningTrack}
+              className="p-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold border border-slate-700 flex items-center justify-center gap-2 transition-all disabled:opacity-50 text-xs sm:text-sm"
+            >
+              <RefreshCw className="w-4 h-4 text-emerald-400" />
+              <span>Check All ({movies.length})</span>
+            </button>
 
-            <ul className="space-y-2 text-slate-400">
-              <li className="flex items-start gap-2">
-                <span className="text-emerald-400">✓</span>
-                <span>
-                  <strong className="text-slate-300">Active Place:</strong> {activeRegionName} (<code>{activeRegion}</code>)
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-emerald-400">✓</span>
-                <span>
-                  <strong className="text-slate-300">Auto-Check Interval:</strong> {intervalMinutes > 0 ? `Every ${intervalMinutes} mins` : 'Manual only'}
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-emerald-400">✓</span>
-                <span>
-                  <strong className="text-slate-300">Monitored Movies:</strong> {movies.length} title(s) in catalog
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-emerald-400">✓</span>
-                <span>
-                  <strong className="text-slate-300">Discord Mention:</strong> <code>@everyone</code> push notifications
-                </span>
-              </li>
-            </ul>
+            <button
+              onClick={handleSendTestAlert}
+              disabled={sendingAlert}
+              className="p-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold border border-slate-700 flex items-center justify-center gap-2 transition-all disabled:opacity-50 text-xs sm:text-sm"
+            >
+              {sendingAlert ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
+                  <span>Sending...</span>
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4 text-indigo-400" />
+                  <span>Test Discord</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>

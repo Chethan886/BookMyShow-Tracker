@@ -18,6 +18,7 @@ import {
   ChevronDown,
   Sparkles,
   Ticket,
+  X,
 } from 'lucide-react';
 
 // Preset popular places on BookMyShow

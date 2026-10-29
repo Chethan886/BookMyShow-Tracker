@@ -10,6 +10,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
+const { execFile } = require('child_process');
 const axios = require('axios');
 const cheerio = require('cheerio');
 
@@ -113,28 +114,71 @@ const DEFAULT_RAMAYANA_MOVIE = {
   lastAlertSentTime: null,
 };
 
+
 // ==========================================
-// HTTP CLIENT SETUP (Browser Emulation)
+// HTTP CLIENT SETUP (Cloudflare JA3 Bypass with curl)
 // ==========================================
+
+function curlFetch(url, region = 'karwar', options = {}) {
+  return new Promise((resolve, reject) => {
+    const isJson = options.isJson || false;
+    const r = (region || CONFIG.region || 'karwar').toLowerCase();
+    const ua = isJson
+      ? 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36'
+      : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36';
+
+    const args = [
+      '-s',
+      '-L',
+      '--compressed',
+      '--max-time', '15',
+      '-A', ua,
+      '-H', isJson ? 'Accept: application/json, text/plain, */*' : 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      '-H', 'Accept-Language: en-US,en;q=0.9',
+      '-H', `Referer: https://in.bookmyshow.com/explore/movies-${r}`,
+      '-H', `Cookie: RgnCode=${r.toUpperCase()}; bmsId=1.${Date.now()}.${Math.floor(Math.random() * 1000000)};`,
+    ];
+
+    if (isJson) {
+      args.push('-H', 'X-App-Code: MOBAND2');
+      args.push('-H', 'X-Appversion: 14390');
+      args.push('-H', 'Origin: https://in.bookmyshow.com');
+    } else {
+      args.push('-H', 'Sec-Ch-Ua: "Google Chrome";v="129", "Not=A?Brand";v="8", "Chromium";v="129"');
+      args.push('-H', 'Sec-Ch-Ua-Mobile: ?0');
+      args.push('-H', 'Sec-Ch-Ua-Platform: "Windows"');
+      args.push('-H', 'Sec-Fetch-Dest: document');
+      args.push('-H', 'Sec-Fetch-Mode: navigate');
+      args.push('-H', 'Sec-Fetch-Site: none');
+      args.push('-H', 'Sec-Fetch-User: ?1');
+      args.push('-H', 'Upgrade-Insecure-Requests: 1');
+    }
+
+    args.push(url);
+
+    execFile('curl', args, { maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
+      if (err) return reject(err);
+      if (!stdout || stdout.length === 0) return reject(new Error('Empty response from curl'));
+      if (isJson) {
+        try {
+          return resolve({ data: JSON.parse(stdout), status: 200 });
+        } catch {
+          return resolve({ data: stdout, status: 200 });
+        }
+      }
+      return resolve({ data: stdout, status: 200 });
+    });
+  });
+}
 
 function createBrowserHeaders(regionSlug) {
   const r = (regionSlug || CONFIG.region || 'karwar').toUpperCase();
   return {
     'User-Agent':
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
     'Accept':
-      'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-    'Accept-Language': 'en-US,en;q=0.9,hi;q=0.8,kn;q=0.7',
-    'Cache-Control': 'no-cache',
-    'Pragma': 'no-cache',
-    'Sec-Ch-Ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-    'Sec-Ch-Ua-Mobile': '?0',
-    'Sec-Ch-Ua-Platform': '"Windows"',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'none',
-    'Sec-Fetch-User': '?1',
-    'Upgrade-Insecure-Requests': '1',
+      'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
     'Referer': 'https://in.bookmyshow.com/',
     'Cookie': `RgnCode=${r}; bmsId=1.${Date.now()}.${Math.floor(Math.random() * 1000000)};`,
   };
@@ -149,11 +193,19 @@ const httpClient = axios.create({
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function fetchWithRetry(url, options = {}, retries = CONFIG.maxRetries) {
+  const region = options.region || CONFIG.region || 'karwar';
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      console.log(`[HTTP] GET ${url} (Attempt ${attempt}/${retries})`);
-      const response = await httpClient.get(url, options);
-      return response;
+      console.log(`[HTTP] Fetching ${url} (Attempt ${attempt}/${retries})`);
+      // Try curl first (bypasses Cloudflare TLS fingerprinting)
+      try {
+        const curlRes = await curlFetch(url, region, options);
+        return curlRes;
+      } catch (curlErr) {
+        console.warn(`[HTTP] curl attempt failed (${curlErr.message}), trying axios fallback...`);
+        const response = await httpClient.get(url, options);
+        return response;
+      }
     } catch (error) {
       const isLastAttempt = attempt === retries;
       const status = error.response ? error.response.status : error.code || 'UNKNOWN';
@@ -627,7 +679,7 @@ async function fetchBmsApiMovies(regionSlug) {
     const url = `https://in.bookmyshow.com/api/explore/v1/list/movies?${baseParams.toString()}&status=${status}`;
     try {
       console.log(`[API] Fetching BMS ${status} API for ${r.toUpperCase()}...`);
-      const res = await httpClient.get(url, { headers: apiHeaders });
+      const res = await curlFetch(url, r, { isJson: true });
       results[status] = res.data;
       const count = res.data?.BookMyShow?.arrEvents?.length || res.data?.arrEvents?.length || 0;
       console.log(`[API] ${r.toUpperCase()} ${status}: ${count} movie(s) returned`);

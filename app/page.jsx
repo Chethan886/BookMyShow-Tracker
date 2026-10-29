@@ -11,32 +11,30 @@ import {
   RefreshCw,
   CheckCircle2,
   AlertTriangle,
-  Radio,
-  Sparkles,
   Plus,
   Trash2,
-  X,
   Check,
   Timer,
   ChevronDown,
-  Compass,
+  Sparkles,
+  Ticket,
 } from 'lucide-react';
 
 // Preset popular places on BookMyShow
 const POPULAR_PLACES = [
-  { slug: 'karwar', name: 'Karwar, Karnataka', cinema: 'Miraj Cinemas: Geetanjali, Karwar' },
-  { slug: 'bengaluru', name: 'Bengaluru / Bangalore', cinema: 'PVR, INOX, Cinepolis' },
-  { slug: 'mangaluru', name: 'Mangaluru / Mangalore', cinema: 'PVR, Bharat Cinemas, Cinepolis' },
-  { slug: 'hubli', name: 'Hubballi / Hubli', cinema: 'Cinepolis, PVR Urban Oasis' },
-  { slug: 'belgaum', name: 'Belagavi / Belgaum', cinema: 'Inox, Carnival Cinemas' },
-  { slug: 'mysuru', name: 'Mysuru / Mysore', cinema: 'DRC Cinemas, INOX' },
-  { slug: 'manipal', name: 'Manipal / Udupi', cinema: 'Bharat Cinemas, INOX' },
-  { slug: 'goa', name: 'Goa (Panaji / Margao)', cinema: 'INOX Panaji, Osia' },
-  { slug: 'mumbai', name: 'Mumbai', cinema: 'PVR, INOX, Cinepolis' },
-  { slug: 'hyderabad', name: 'Hyderabad', cinema: 'Prasads Multiplex, AMB Cinemas' },
-  { slug: 'chennai', name: 'Chennai', cinema: 'Sathyam Cinemas, PVR' },
-  { slug: 'ncr', name: 'Delhi-NCR', cinema: 'PVR Directors Cut, Cinepolis' },
-  { slug: 'pune', name: 'Pune', cinema: 'Cinepolis, PVR Phoenix' },
+  { slug: 'karwar', name: 'Karwar', fullName: 'Karwar, Karnataka', cinema: 'Miraj Cinemas: Geetanjali' },
+  { slug: 'bengaluru', name: 'Bengaluru', fullName: 'Bengaluru / Bangalore', cinema: 'PVR, INOX, Cinepolis' },
+  { slug: 'mangaluru', name: 'Mangaluru', fullName: 'Mangaluru / Mangalore', cinema: 'PVR, Bharat Cinemas' },
+  { slug: 'hubli', name: 'Hubballi', fullName: 'Hubballi / Hubli', cinema: 'Cinepolis, PVR Urban' },
+  { slug: 'belgaum', name: 'Belagavi', fullName: 'Belagavi / Belgaum', cinema: 'Inox, Carnival' },
+  { slug: 'mysuru', name: 'Mysuru', fullName: 'Mysuru / Mysore', cinema: 'DRC Cinemas, INOX' },
+  { slug: 'manipal', name: 'Manipal', fullName: 'Manipal / Udupi', cinema: 'Bharat Cinemas, INOX' },
+  { slug: 'goa', name: 'Goa', fullName: 'Goa (Panaji / Margao)', cinema: 'INOX Panaji, Osia' },
+  { slug: 'mumbai', name: 'Mumbai', fullName: 'Mumbai', cinema: 'PVR, INOX, Cinepolis' },
+  { slug: 'hyderabad', name: 'Hyderabad', fullName: 'Hyderabad', cinema: 'Prasads, AMB Cinemas' },
+  { slug: 'chennai', name: 'Chennai', fullName: 'Chennai', cinema: 'Sathyam Cinemas, PVR' },
+  { slug: 'ncr', name: 'Delhi-NCR', fullName: 'Delhi-NCR', cinema: 'PVR Directors Cut' },
+  { slug: 'pune', name: 'Pune', fullName: 'Pune', cinema: 'Cinepolis, PVR Phoenix' },
 ];
 
 // Preset popular upcoming releases
@@ -49,15 +47,14 @@ const POPULAR_PRESETS = [
   { title: 'Spirit', keywords: 'Spirit, Prabhas Spirit' },
 ];
 
-// Available Auto-Check Intervals
 const INTERVAL_OPTIONS = [
   { label: 'Off', minutes: 0 },
-  { label: '5 mins', minutes: 5 },
-  { label: '10 mins', minutes: 10 },
-  { label: '15 mins', minutes: 15 },
-  { label: '20 mins', minutes: 20 },
-  { label: '30 mins', minutes: 30 },
-  { label: '60 mins', minutes: 60 },
+  { label: '5m', minutes: 5 },
+  { label: '10m', minutes: 10 },
+  { label: '15m', minutes: 15 },
+  { label: '20m', minutes: 20 },
+  { label: '30m', minutes: 30 },
+  { label: '60m', minutes: 60 },
 ];
 
 export default function TrackerDashboard() {
@@ -70,32 +67,27 @@ export default function TrackerDashboard() {
       lastStatus: 'NOT_YET_LISTED',
       lastCheckTime: null,
       bookingUrl: 'https://in.bookmyshow.com/explore/movies-karwar',
+      theaters: ['Miraj Cinemas: Geetanjali, Karwar'],
     },
   ]);
-  const [activeMovieId, setActiveMovieId] = useState('ramayana');
-  const [activeRegion, setActiveRegion] = useState('karwar');
-  const [activeRegionName, setActiveRegionName] = useState('Karwar, Karnataka');
 
-  // Auto-check interval state (in minutes, 0 = disabled)
+  // Form State for Adding Tracker
+  const [formTitle, setFormTitle] = useState('');
+  const [formRegion, setFormRegion] = useState('karwar');
+  const [formKeywords, setFormKeywords] = useState('');
+  const [addingMovie, setAddingMovie] = useState(false);
+
+  // Global settings
   const [intervalMinutes, setIntervalMinutes] = useState(15);
   const [countdownSeconds, setCountdownSeconds] = useState(15 * 60);
 
   const [loading, setLoading] = useState(true);
-  const [runningTrack, setRunningTrack] = useState(false);
-  const [sendingAlert, setSendingAlert] = useState(false);
-
-  // Modals
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showPlaceModal, setShowPlaceModal] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
-  const [newKeywords, setNewKeywords] = useState('');
-  const [newMovieRegion, setNewMovieRegion] = useState('karwar');
-  const [customPlaceSlug, setCustomPlaceSlug] = useState('');
-  const [addingMovie, setAddingMovie] = useState(false);
-
+  const [checkingMovieId, setCheckingMovieId] = useState(null);
+  const [checkingAll, setCheckingAll] = useState(false);
+  const [testingDiscord, setTestingDiscord] = useState(false);
   const [feedback, setFeedback] = useState(null);
 
-  // Fetch initial state & settings
+  // Fetch initial movies & settings
   const fetchInitialData = async () => {
     try {
       setLoading(true);
@@ -108,9 +100,7 @@ export default function TrackerDashboard() {
       const settingsData = await settingsRes.json();
 
       if (settingsData.success && settingsData.settings) {
-        const reg = settingsData.settings.region || 'karwar';
-        setActiveRegion(reg);
-        setActiveRegionName(settingsData.settings.regionName || `${reg.toUpperCase()}`);
+        if (settingsData.settings.region) setFormRegion(settingsData.settings.region);
         if (settingsData.settings.checkIntervalMinutes !== undefined) {
           setIntervalMinutes(settingsData.settings.checkIntervalMinutes);
           setCountdownSeconds(settingsData.settings.checkIntervalMinutes * 60);
@@ -124,7 +114,7 @@ export default function TrackerDashboard() {
         } catch {}
       }
     } catch (err) {
-      console.warn('Failed to fetch initial settings:', err.message);
+      console.warn('Failed to fetch initial data:', err.message);
       try {
         const cached = localStorage.getItem('bms_tracked_movies');
         if (cached) setMovies(JSON.parse(cached));
@@ -153,97 +143,47 @@ export default function TrackerDashboard() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [intervalMinutes, movies, activeRegion]);
+  }, [intervalMinutes, movies]);
 
-  const activeMovie = movies.find((m) => m.id === activeMovieId) || movies[0] || {};
-  const currentRegionObj = POPULAR_PLACES.find((p) => p.slug === activeRegion) || {
-    slug: activeRegion,
-    name: activeRegionName,
-    cinema: `${activeRegion.toUpperCase()} Theaters & Multiplexes`,
-  };
-
-  // Change active place
-  const handleSelectPlace = async (placeSlug, placeName) => {
-    const slug = placeSlug.toLowerCase().trim();
-    const name = placeName || slug.toUpperCase();
-    setActiveRegion(slug);
-    setActiveRegionName(name);
-    setShowPlaceModal(false);
-
-    try {
-      await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          region: slug,
-          regionName: name,
-          checkIntervalMinutes: intervalMinutes,
-        }),
-      });
-    } catch (err) {
-      console.warn('Could not save place to backend settings:', err);
-    }
-  };
-
-  // Change check interval
-  const handleChangeInterval = async (minutes) => {
-    setIntervalMinutes(minutes);
-    setCountdownSeconds(minutes * 60);
-
-    try {
-      await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          region: activeRegion,
-          regionName: activeRegionName,
-          checkIntervalMinutes: minutes,
-        }),
-      });
-    } catch {}
-  };
-
-  // Add new movie
-  const handleAddMovie = async (e) => {
+  // Handle adding a new movie tracker
+  const handleAddTracker = async (e) => {
     if (e) e.preventDefault();
-    if (!newTitle.trim()) return;
+    if (!formTitle.trim()) return;
 
     try {
       setAddingMovie(true);
-      const chosenRegion = newMovieRegion || activeRegion;
+      setFeedback(null);
 
       const res = await fetch('/api/movies', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: newTitle.trim(),
-          keywords: newKeywords.trim(),
-          region: chosenRegion,
+          title: formTitle.trim(),
+          region: formRegion,
+          keywords: formKeywords.trim(),
         }),
       });
 
       const data = await res.json();
       if (data.success) {
         setMovies(data.movies);
-        setActiveMovieId(data.movie.id);
-        setNewTitle('');
-        setNewKeywords('');
-        setShowAddModal(false);
+        setFormTitle('');
+        setFormKeywords('');
         setFeedback({
           type: 'success',
-          title: 'Movie Added!',
-          msg: `"${data.movie.title}" is now being monitored in ${chosenRegion.toUpperCase()}.`,
+          title: 'Tracker Added!',
+          msg: `"${data.movie.title}" is now actively tracked in ${data.movie.region.toUpperCase()}.`,
         });
         try {
           localStorage.setItem('bms_tracked_movies', JSON.stringify(data.movies));
         } catch {}
       } else {
-        throw new Error(data.error || 'Failed to add movie');
+        throw new Error(data.error || 'Failed to add tracker');
       }
     } catch (err) {
       setFeedback({
         type: 'error',
-        title: 'Could Not Add Movie',
+        title: 'Error Adding Tracker',
         msg: err.message,
       });
     } finally {
@@ -251,9 +191,8 @@ export default function TrackerDashboard() {
     }
   };
 
-  // Remove movie
-  const handleRemoveMovie = async (movieId, movieTitle, e) => {
-    e.stopPropagation();
+  // Delete a movie tracker
+  const handleDeleteTracker = async (movieId, movieTitle) => {
     if (!confirm(`Are you sure you want to stop tracking "${movieTitle}"?`)) return;
 
     try {
@@ -261,32 +200,27 @@ export default function TrackerDashboard() {
       const data = await res.json();
       if (data.success) {
         setMovies(data.movies);
-        if (activeMovieId === movieId) {
-          setActiveMovieId(data.movies[0]?.id || 'ramayana');
-        }
         try {
           localStorage.setItem('bms_tracked_movies', JSON.stringify(data.movies));
         } catch {}
       }
     } catch (err) {
-      console.warn('Failed to remove movie:', err.message);
+      console.warn('Failed to delete movie:', err.message);
     }
   };
 
-  // Check active movie
-  const handleCheckActiveMovie = async () => {
-    if (!activeMovie.id) return;
+  // Check a single movie tracker
+  const handleCheckSingleMovie = async (movie) => {
     try {
-      setRunningTrack(true);
+      setCheckingMovieId(movie.id);
       setFeedback(null);
-      const reg = activeMovie.region || activeRegion;
 
       const res = await fetch('/api/track', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          movieId: activeMovie.id,
-          region: reg,
+          movieId: movie.id,
+          region: movie.region || 'karwar',
         }),
       });
       const data = await res.json();
@@ -300,26 +234,26 @@ export default function TrackerDashboard() {
         if (result.isLive) {
           setFeedback({
             type: 'success',
-            title: 'TICKETS ARE LIVE!',
-            msg: `Found live booking for "${result.movieTitle}" in ${reg.toUpperCase()}! ${
-              alertDispatched ? 'Discord webhook dispatched!' : 'Already alerted previously.'
+            title: 'TICKETS LIVE!',
+            msg: `🎉 Booking is OPEN for "${result.movieTitle}" in ${(movie.region || 'karwar').toUpperCase()}! ${
+              alertDispatched ? 'Discord webhook alert dispatched!' : ''
             }`,
           });
         } else if (result.isFound) {
           setFeedback({
             type: 'info',
             title: 'Movie Listed (Coming Soon)',
-            msg: `"${result.movieTitle}" is visible on ${reg.toUpperCase()} pages, but booking is not yet active.`,
+            msg: `"${result.movieTitle}" is visible on BookMyShow ${(movie.region || 'karwar').toUpperCase()}, but booking hasn't opened yet.`,
           });
         } else {
           setFeedback({
             type: 'warning',
             title: 'Not Yet Listed',
-            msg: `"${activeMovie.title}" is not listed on BMS ${reg.toUpperCase()} yet. The automated timer will continue checking.`,
+            msg: `"${movie.title}" is not listed in ${(movie.region || 'karwar').toUpperCase()} yet. The auto-tracker will keep monitoring.`,
           });
         }
       } else {
-        throw new Error(data.error || 'Check execution failed');
+        throw new Error(data.error || 'Check failed');
       }
     } catch (err) {
       setFeedback({
@@ -328,7 +262,7 @@ export default function TrackerDashboard() {
         msg: err.message,
       });
     } finally {
-      setRunningTrack(false);
+      setCheckingMovieId(null);
       if (intervalMinutes > 0) setCountdownSeconds(intervalMinutes * 60);
     }
   };
@@ -336,13 +270,13 @@ export default function TrackerDashboard() {
   // Check all movies
   const handleCheckAllMovies = async (isAuto = false) => {
     try {
-      setRunningTrack(true);
+      setCheckingAll(true);
       if (!isAuto) setFeedback(null);
 
       const res = await fetch('/api/track', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ all: true, region: activeRegion }),
+        body: JSON.stringify({ all: true }),
       });
       const data = await res.json();
 
@@ -359,8 +293,8 @@ export default function TrackerDashboard() {
         } else if (!isAuto) {
           setFeedback({
             type: 'info',
-            title: 'Batch Check Complete',
-            msg: `Checked all ${movies.length} movies. Auto-check continues at your chosen interval.`,
+            title: 'All Trackers Checked',
+            msg: `Checked ${movies.length} movies. Auto-check continues at your chosen interval.`,
           });
         }
       } else {
@@ -375,7 +309,7 @@ export default function TrackerDashboard() {
         });
       }
     } finally {
-      setRunningTrack(false);
+      setCheckingAll(false);
       if (intervalMinutes > 0) setCountdownSeconds(intervalMinutes * 60);
     }
   };
@@ -383,7 +317,7 @@ export default function TrackerDashboard() {
   // Test Discord Webhook
   const handleSendTestAlert = async () => {
     try {
-      setSendingAlert(true);
+      setTestingDiscord(true);
       setFeedback(null);
 
       const res = await fetch('/api/test-alert', { method: 'POST' });
@@ -405,18 +339,36 @@ export default function TrackerDashboard() {
         msg: err.message,
       });
     } finally {
-      setSendingAlert(false);
+      setTestingDiscord(false);
     }
   };
 
-  const isLive = activeMovie.lastStatus === 'LIVE';
-  const isListed = activeMovie.lastStatus === 'LISTED_COMING_SOON';
-  const moviePlace = POPULAR_PLACES.find((p) => p.slug === (activeMovie.region || activeRegion)) || {
-    name: (activeMovie.region || activeRegion).toUpperCase(),
-    cinema: 'Local Theaters',
+  // Change interval
+  const handleChangeInterval = async (minutes) => {
+    setIntervalMinutes(minutes);
+    setCountdownSeconds(minutes * 60);
+
+    try {
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ checkIntervalMinutes: minutes }),
+      });
+    } catch {}
   };
 
-  // Format countdown mm:ss
+  // Format time relative or string
+  const formatTimeAgo = (iso) => {
+    if (!iso) return 'Never checked';
+    const diffMs = Date.now() - new Date(iso).getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return new Date(iso).toLocaleDateString();
+  };
+
   const formatCountdown = (secs) => {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
@@ -424,180 +376,58 @@ export default function TrackerDashboard() {
   };
 
   return (
-    <main className="min-h-screen text-slate-100 p-4 md:p-8 max-w-4xl mx-auto">
-      {/* Top Navbar */}
-      <header className="flex flex-col md:flex-row items-start md:items-center justify-between pb-6 border-b border-slate-800 gap-4">
+    <main className="min-h-screen text-slate-100 p-4 md:p-8 max-w-7xl mx-auto">
+      {/* Top Header */}
+      <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-6 border-b border-slate-800/80 gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-bms-red flex items-center justify-center shadow-lg shadow-bms-red/30">
-            <Film className="w-6 h-6 text-white" />
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-bms-red to-purple-600 flex items-center justify-center shadow-lg shadow-bms-red/25">
+            <Film className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-xl md:text-2xl font-bold tracking-tight flex items-center gap-2">
-              BookMyShow Ticket Tracker
-              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-bms-red/20 text-bms-red border border-bms-red/30 uppercase">
-                {activeRegion}
-              </span>
+            <h1 className="text-xl md:text-2xl font-extrabold tracking-tight text-white flex items-center gap-2">
+              BookMyShow Tracker
             </h1>
-            <p className="text-xs md:text-sm text-slate-400">
-              Monitoring <span className="text-slate-200 font-semibold">{movies.length} Movie{movies.length > 1 ? 's' : ''}</span> in <span className="text-bms-red font-semibold">{activeRegionName}</span>
+            <p className="text-xs text-slate-400 uppercase tracking-wider font-medium">
+              Real-Time Ticket Availability Tracker
             </p>
           </div>
         </div>
 
-        {/* Controls: Place, Interval, Add Movie, Refresh, BookMyShow */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Place Selector Pill */}
-          <button
-            onClick={() => setShowPlaceModal(true)}
-            className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs sm:text-sm flex items-center gap-1.5 transition-colors font-medium"
-            title="Change Monitored Place / City"
-          >
-            <MapPin className="w-4 h-4 text-rose-400" />
-            <span className="font-semibold">{activeRegionName.split(',')[0]}</span>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 ml-0.5" />
-          </button>
-
-          {/* Auto-Check Interval Dropdown */}
-          <div className="relative flex items-center bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs">
-            <Timer className="w-3.5 h-3.5 text-indigo-400 mr-1.5" />
-            <span className="text-slate-400 hidden sm:inline mr-1">Interval:</span>
-            <select
-              value={intervalMinutes}
-              onChange={(e) => handleChangeInterval(parseInt(e.target.value, 10))}
-              className="bg-transparent text-slate-200 font-semibold focus:outline-none cursor-pointer text-xs"
-            >
-              {INTERVAL_OPTIONS.map((opt) => (
-                <option key={opt.minutes} value={opt.minutes} className="bg-slate-900 text-slate-100">
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+        {/* Global Controls */}
+        <div className="flex items-center gap-2.5">
+          {/* System Active Badge */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-xs text-slate-300">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="font-semibold text-emerald-400">System Active</span>
           </div>
 
+          {/* Test Discord */}
           <button
-            onClick={() => setShowAddModal(true)}
-            className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors border border-emerald-500 text-xs sm:text-sm flex items-center gap-1.5 shadow-md shadow-emerald-600/20"
+            onClick={handleSendTestAlert}
+            disabled={testingDiscord}
+            className="p-2 sm:px-3 sm:py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            title="Send Test Discord Webhook Alert"
           >
-            <Plus className="w-4 h-4" />
-            <span>Add Movie</span>
+            <Send className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="hidden sm:inline">Test Discord</span>
           </button>
 
+          {/* Refresh */}
           <button
             onClick={fetchInitialData}
             disabled={loading}
-            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700 text-sm flex items-center gap-1.5"
-            title="Refresh State"
+            className="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs transition-colors"
+            title="Refresh All Trackers"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
-
-          <a
-            href={`https://in.bookmyshow.com/explore/movies-${activeRegion}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-3 py-2 rounded-lg bg-bms-red hover:bg-rose-600 text-white font-medium transition-colors shadow-md shadow-bms-red/20 text-xs sm:text-sm flex items-center gap-1.5"
-          >
-            <span>BookMyShow</span>
-            <ExternalLink className="w-4 h-4" />
-          </a>
         </div>
       </header>
-
-      {/* Auto-Check Countdown Indicator Bar */}
-      {intervalMinutes > 0 && (
-        <div className="mt-4 px-4 py-2 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between text-xs text-slate-400">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Auto-Check Active (Every {intervalMinutes}m):</span>
-            <span className="text-white font-mono font-bold">{formatCountdown(countdownSeconds)}</span>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <span className="hidden sm:inline text-slate-500">Scheduled checks run serverless in the background</span>
-            <button
-              onClick={() => handleCheckAllMovies()}
-              disabled={runningTrack}
-              className="text-bms-red hover:text-rose-400 font-semibold transition-colors flex items-center gap-1"
-            >
-              Check Now
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Tracked Movies Selector Bar */}
-      <section className="mt-5">
-        <div className="flex items-center justify-between mb-2.5">
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-            Tracked Movies ({movies.length})
-          </span>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="text-xs text-bms-red hover:text-rose-400 flex items-center gap-1 font-medium transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Add Another Movie
-          </button>
-        </div>
-
-        <div className="flex items-center gap-2.5 overflow-x-auto pb-2 scrollbar-thin">
-          {movies.map((m) => {
-            const isSelected = m.id === activeMovieId;
-            const live = m.lastStatus === 'LIVE';
-            const listed = m.lastStatus === 'LISTED_COMING_SOON';
-            const movieReg = m.region || activeRegion;
-
-            return (
-              <div
-                key={m.id}
-                onClick={() => setActiveMovieId(m.id)}
-                className={`cursor-pointer px-4 py-2.5 rounded-xl border flex items-center gap-2.5 transition-all shrink-0 select-none ${
-                  isSelected
-                    ? 'bg-slate-800 border-bms-red/70 shadow-lg shadow-bms-red/10 ring-1 ring-bms-red/40 text-white'
-                    : 'glass-panel text-slate-300 hover:border-slate-700 hover:text-white'
-                }`}
-              >
-                <div
-                  className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                    live
-                      ? 'bg-emerald-400 animate-ping'
-                      : listed
-                      ? 'bg-amber-400 animate-pulse'
-                      : 'bg-rose-500'
-                  }`}
-                />
-                <span className="font-semibold text-sm">{m.title}</span>
-                <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-slate-900/80 text-slate-400 border border-slate-700/60">
-                  {movieReg}
-                </span>
-
-                {movies.length > 1 && (
-                  <button
-                    onClick={(e) => handleRemoveMovie(m.id, m.title, e)}
-                    className="ml-1 p-0.5 rounded hover:bg-rose-500/20 text-slate-500 hover:text-rose-400 transition-colors"
-                    title={`Delete ${m.title}`}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            );
-          })}
-
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="px-3.5 py-2.5 rounded-xl border border-dashed border-slate-700 hover:border-bms-red/60 text-slate-400 hover:text-bms-red transition-all flex items-center gap-1.5 text-xs font-semibold shrink-0"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Movie</span>
-          </button>
-        </div>
-      </section>
 
       {/* Feedback Banner */}
       {feedback && (
         <div
-          className={`mt-4 p-4 rounded-xl border flex items-start gap-3 transition-all ${
+          className={`mt-4 p-3.5 rounded-xl border flex items-start gap-3 transition-all ${
             feedback.type === 'success'
               ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-200'
               : feedback.type === 'info'
@@ -608,382 +438,319 @@ export default function TrackerDashboard() {
           }`}
         >
           {feedback.type === 'success' ? (
-            <CheckCircle2 className="w-5 h-5 mt-0.5 shrink-0 text-emerald-400" />
+            <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0 text-emerald-400" />
           ) : (
-            <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0 text-amber-400" />
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
           )}
-          <div>
-            <h4 className="font-semibold text-sm">{feedback.title}</h4>
+          <div className="flex-1">
+            <h4 className="font-semibold text-xs sm:text-sm">{feedback.title}</h4>
             <p className="text-xs opacity-90 mt-0.5">{feedback.msg}</p>
           </div>
+          <button
+            onClick={() => setFeedback(null)}
+            className="text-slate-400 hover:text-white"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
-      {/* Main Content Area */}
-      <div className="space-y-6 mt-5">
-        {/* Hero Status Card for Active Movie */}
-        <div className="glass-panel rounded-2xl p-6 relative overflow-hidden border">
-          {/* Background Glow */}
-          <div
-            className={`absolute -right-20 -top-20 w-64 h-64 rounded-full blur-3xl opacity-20 pointer-events-none ${
-              isLive ? 'bg-emerald-500' : 'bg-bms-red'
-            }`}
-          />
-
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-5 border-b border-slate-800/80">
-            <div className="space-y-1">
-              <div className="text-xs uppercase tracking-wider text-slate-400 font-medium flex items-center gap-1.5">
-                <Compass className="w-3.5 h-3.5 text-bms-red" />
-                Availability Status in {(activeMovie.region || activeRegion).toUpperCase()}
-              </div>
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-3.5 h-3.5 rounded-full ${
-                    isLive
-                      ? 'bg-emerald-400 animate-ping'
-                      : isListed
-                      ? 'bg-amber-400 animate-pulse'
-                      : 'bg-rose-500'
-                  }`}
-                />
-                <h2 className="text-2xl font-extrabold text-white">
-                  {isLive
-                    ? 'TICKETS LIVE & BOOKABLE!'
-                    : isListed
-                    ? 'LISTED (COMING SOON)'
-                    : 'MONITORING (NOT YET LIVE)'}
-                </h2>
-              </div>
-            </div>
-
-            <div
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider border ${
-                isLive
-                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 glow-active'
-                  : isListed
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                  : 'bg-slate-800 text-slate-400 border-slate-700'
-              }`}
-            >
-              {activeMovie.lastStatus || 'INITIALIZED'}
-            </div>
+      {/* Main 2-Column Layout (FitCheck Pattern) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-6 items-start">
+        {/* LEFT COLUMN: "+ Add New Tracker" (4 cols on lg) */}
+        <div className="lg:col-span-4 bg-[#131622] border border-slate-800/90 rounded-2xl p-5 shadow-xl sticky top-6">
+          <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-800">
+            <Plus className="w-4 h-4 text-bms-red" />
+            <h2 className="text-sm font-bold text-white uppercase tracking-wider">
+              Add New Tracker
+            </h2>
           </div>
 
-          {/* Target Parameters */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
-            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
-              <div className="text-xs text-slate-400 flex items-center gap-1.5 mb-1">
-                <Film className="w-3.5 h-3.5 text-bms-red" />
-                Target Movie
-              </div>
-              <div className="text-sm font-bold text-white truncate">{activeMovie.title}</div>
-              <div className="text-[11px] text-slate-400 mt-0.5 truncate">
-                {activeMovie.keywords && activeMovie.keywords.length > 1
-                  ? activeMovie.keywords.slice(0, 2).join(', ')
-                  : 'Exact & Dub match'}
-              </div>
-            </div>
-
-            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
-              <div className="text-xs text-slate-400 flex items-center gap-1.5 mb-1">
-                <MapPin className="w-3.5 h-3.5 text-rose-400" />
-                Monitored Place
-              </div>
-              <div className="text-sm font-bold text-white truncate">{moviePlace.name}</div>
-              <div className="text-[11px] text-slate-400 mt-0.5 font-mono">
-                Slug: {activeMovie.region || activeRegion}
-              </div>
-            </div>
-
-            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
-              <div className="text-xs text-slate-400 flex items-center gap-1.5 mb-1">
-                <Radio className="w-3.5 h-3.5 text-indigo-400" />
-                Theaters / Venues
-              </div>
-              <div className="text-sm font-bold text-white truncate">
-                {moviePlace.cinema || 'Local Cinemas'}
-              </div>
-              <div className="text-[11px] text-slate-400 mt-0.5 truncate">
-                BookMyShow Catalog
-              </div>
-            </div>
-          </div>
-
-          {/* Timestamps & Booking Link */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between text-xs text-slate-400 gap-3 mt-5 pt-4 border-t border-slate-800/80">
-            <div className="flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5" />
-              <span>Last Checked: </span>
-              <span className="text-slate-200 font-medium">
-                {activeMovie.lastCheckTime
-                  ? new Date(activeMovie.lastCheckTime).toLocaleString()
-                  : 'Not yet checked'}
-              </span>
-            </div>
-
-            {activeMovie.bookingUrl && (
-              <a
-                href={activeMovie.bookingUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-bms-red hover:text-rose-400 flex items-center gap-1 font-semibold transition-colors"
-              >
-                Book on BookMyShow
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            )}
-          </div>
-        </div>
-
-        {/* Action Center (Manual Triggers) */}
-        <div className="glass-panel rounded-2xl p-6 border">
-          <h3 className="text-base font-bold text-white flex items-center gap-2 mb-2">
-            <Sparkles className="w-4 h-4 text-bms-red" />
-            Manual Control Center
-          </h3>
-          <p className="text-xs text-slate-400 mb-5">
-            Run instant checks on-demand for <strong>{activeMovie.title}</strong>, check all {movies.length} movies, or test Discord alerts.
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-            <button
-              onClick={handleCheckActiveMovie}
-              disabled={runningTrack}
-              className="p-3.5 rounded-xl bg-gradient-to-r from-bms-red to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-semibold flex items-center justify-center gap-2 transition-all shadow-lg shadow-bms-red/25 disabled:opacity-50 text-xs sm:text-sm"
-            >
-              {runningTrack ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Scraping...</span>
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4 fill-white" />
-                  <span>Check "{activeMovie.title}"</span>
-                </>
-              )}
-            </button>
-
-            <button
-              onClick={() => handleCheckAllMovies()}
-              disabled={runningTrack}
-              className="p-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold border border-slate-700 flex items-center justify-center gap-2 transition-all disabled:opacity-50 text-xs sm:text-sm"
-            >
-              <RefreshCw className="w-4 h-4 text-emerald-400" />
-              <span>Check All ({movies.length})</span>
-            </button>
-
-            <button
-              onClick={handleSendTestAlert}
-              disabled={sendingAlert}
-              className="p-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold border border-slate-700 flex items-center justify-center gap-2 transition-all disabled:opacity-50 text-xs sm:text-sm"
-            >
-              {sendingAlert ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
-                  <span>Sending...</span>
-                </>
-              ) : (
-                <>
-                  <Send className="w-4 h-4 text-indigo-400" />
-                  <span>Test Discord</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Select Place / Region Modal */}
-      {showPlaceModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="glass-panel rounded-2xl p-6 border max-w-lg w-full bg-[#161922] shadow-2xl relative animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => setShowPlaceModal(false)}
-              className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center gap-2.5 mb-1 text-white">
-              <MapPin className="w-5 h-5 text-rose-500" />
-              <h3 className="text-lg font-bold">Select Place / City</h3>
-            </div>
-            <p className="text-xs text-slate-400 mb-5">
-              Choose your BookMyShow region to track showtimes and advance ticket bookings.
-            </p>
-
-            {/* Popular Places Grid */}
-            <div className="space-y-2 mb-5">
-              <span className="text-xs font-semibold text-slate-300 block">Popular Cities:</span>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {POPULAR_PLACES.map((p) => {
-                  const isCurrent = p.slug === activeRegion;
-                  return (
-                    <button
-                      key={p.slug}
-                      type="button"
-                      onClick={() => handleSelectPlace(p.slug, p.name)}
-                      className={`p-2.5 rounded-xl text-left border transition-all text-xs flex flex-col justify-between ${
-                        isCurrent
-                          ? 'bg-bms-red/20 border-bms-red text-white font-bold'
-                          : 'bg-slate-900/60 border-slate-700/80 text-slate-300 hover:border-slate-500 hover:text-white'
-                      }`}
-                    >
-                      <span className="truncate">{p.name.split(',')[0]}</span>
-                      <span className="text-[10px] text-slate-500 font-mono mt-0.5">{p.slug}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Custom City Slug Input */}
-            <div className="pt-4 border-t border-slate-800">
+          <form onSubmit={handleAddTracker} className="space-y-4">
+            {/* Movie Title */}
+            <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Or enter any custom BookMyShow city slug:
+                Movie Title <span className="text-rose-500">*</span>
               </label>
-              <div className="flex items-center gap-2">
+              <div className="relative">
+                <Film className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
                 <input
                   type="text"
-                  placeholder="e.g. sirsi, udupi, shimoga, dharwad"
-                  value={customPlaceSlug}
-                  onChange={(e) => setCustomPlaceSlug(e.target.value)}
-                  className="flex-1 px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-bms-red font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (customPlaceSlug.trim()) {
-                      handleSelectPlace(customPlaceSlug.trim(), `${customPlaceSlug.trim().toUpperCase()}`);
-                      setCustomPlaceSlug('');
-                    }
-                  }}
-                  disabled={!customPlaceSlug.trim()}
-                  className="px-4 py-2 rounded-xl bg-bms-red hover:bg-rose-600 text-white font-semibold text-xs transition-colors disabled:opacity-50"
-                >
-                  Set Place
-                </button>
-              </div>
-              <span className="text-[11px] text-slate-500 mt-1 block">
-                Matches the BookMyShow URL: <code>in.bookmyshow.com/explore/movies-[slug]</code>
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Movie Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="glass-panel rounded-2xl p-6 border max-w-lg w-full bg-[#161922] shadow-2xl relative animate-in fade-in zoom-in-95 duration-150">
-            <button
-              onClick={() => setShowAddModal(false)}
-              className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center gap-2.5 mb-1 text-white">
-              <Film className="w-5 h-5 text-bms-red" />
-              <h3 className="text-lg font-bold">Add Movie to Tracker</h3>
-            </div>
-            <p className="text-xs text-slate-400 mb-5">
-              Add any upcoming movie to track ticket availability on BookMyShow.
-            </p>
-
-            <form onSubmit={handleAddMovie} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Movie Title <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Kantara: A Legend Chapter-1, Toxic, War 2"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
+                  placeholder="e.g. Ramayana, Kantara, Toxic, War 2"
+                  value={formTitle}
+                  onChange={(e) => setFormTitle(e.target.value)}
                   required
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-bms-red"
+                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-[#0c0e17] border border-slate-800 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-bms-red transition-colors"
                 />
               </div>
+            </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Monitored Place / City
-                </label>
+            {/* Place / Region */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Place / Region
+              </label>
+              <div className="relative">
+                <MapPin className="w-4 h-4 text-rose-500 absolute left-3.5 top-3" />
                 <select
-                  value={newMovieRegion}
-                  onChange={(e) => setNewMovieRegion(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-bms-red"
+                  value={formRegion}
+                  onChange={(e) => setFormRegion(e.target.value)}
+                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-[#0c0e17] border border-slate-800 text-white text-xs focus:outline-none focus:border-bms-red cursor-pointer"
                 >
                   {POPULAR_PLACES.map((p) => (
-                    <option key={p.slug} value={p.slug}>
-                      {p.name} ({p.slug})
+                    <option key={p.slug} value={p.slug} className="bg-slate-900">
+                      {p.name} ({p.fullName})
                     </option>
                   ))}
                 </select>
               </div>
+            </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Keywords / Aliases (Optional, comma-separated)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Kantara, Kantara Chapter 1, Kantara 2"
-                  value={newKeywords}
-                  onChange={(e) => setNewKeywords(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-bms-red"
-                />
-              </div>
+            {/* Target Keywords / Dubs */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Target Keywords / Dubs (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Part 1, Hindi, Kannada, 3D"
+                value={formKeywords}
+                onChange={(e) => setFormKeywords(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[#0c0e17] border border-slate-800 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-bms-red transition-colors"
+              />
+              <span className="text-[10px] text-slate-500 mt-1 block">
+                Comma separated variants to detect advance bookings.
+              </span>
+            </div>
 
-              {/* Quick Presets */}
-              <div>
-                <span className="text-xs font-semibold text-slate-400 block mb-2">
-                  Popular upcoming releases:
-                </span>
-                <div className="flex flex-wrap gap-2">
-                  {POPULAR_PRESETS.map((p) => (
-                    <button
-                      key={p.title}
-                      type="button"
-                      onClick={() => {
-                        setNewTitle(p.title);
-                        setNewKeywords(p.keywords);
-                      }}
-                      className="px-2.5 py-1 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
-                    >
-                      + {p.title}
-                    </button>
+            {/* Check Interval */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Check Interval
+              </label>
+              <div className="relative">
+                <Timer className="w-4 h-4 text-indigo-400 absolute left-3.5 top-3" />
+                <select
+                  value={intervalMinutes}
+                  onChange={(e) => handleChangeInterval(parseInt(e.target.value, 10))}
+                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-[#0c0e17] border border-slate-800 text-white text-xs focus:outline-none focus:border-bms-red cursor-pointer"
+                >
+                  {INTERVAL_OPTIONS.map((opt) => (
+                    <option key={opt.minutes} value={opt.minutes} className="bg-slate-900">
+                      {opt.minutes > 0 ? `Every ${opt.label}` : 'Off (Manual checks only)'}
+                    </option>
                   ))}
-                </div>
+                </select>
               </div>
+            </div>
 
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800 mt-6">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 rounded-xl text-slate-400 hover:text-white text-sm"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={addingMovie || !newTitle.trim()}
-                  className="px-5 py-2.5 rounded-xl bg-bms-red hover:bg-rose-600 text-white font-semibold text-sm transition-all shadow-md shadow-bms-red/25 disabled:opacity-50 flex items-center gap-1.5"
-                >
-                  {addingMovie ? (
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Check className="w-4 h-4" />
-                  )}
-                  <span>Add to Tracker</span>
-                </button>
+            {/* 1-Click Popular Presets */}
+            <div>
+              <span className="text-[11px] font-semibold text-slate-400 block mb-1.5">
+                Popular Upcoming:
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {POPULAR_PRESETS.map((p) => (
+                  <button
+                    key={p.title}
+                    type="button"
+                    onClick={() => {
+                      setFormTitle(p.title);
+                      setFormKeywords(p.keywords);
+                    }}
+                    className="px-2 py-0.5 rounded-lg text-[10px] bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60 transition-colors"
+                  >
+                    + {p.title.split(':')[0]}
+                  </button>
+                ))}
               </div>
-            </form>
+            </div>
+
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={addingMovie || !formTitle.trim()}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-bms-red to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white font-bold text-xs uppercase tracking-wider transition-all shadow-lg shadow-bms-red/25 disabled:opacity-50 flex items-center justify-center gap-2 mt-2"
+            >
+              {addingMovie ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Adding Tracker...</span>
+                </>
+              ) : (
+                <>
+                  <Plus className="w-4 h-4" />
+                  <span>Start Tracking</span>
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+
+        {/* RIGHT COLUMN: "Tracked Items" List (8 cols on lg) */}
+        <div className="lg:col-span-8 space-y-4">
+          {/* Header Row */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Film className="w-4 h-4 text-bms-red" />
+              <h2 className="text-sm font-bold text-white uppercase tracking-wider">
+                Tracked Movies ({movies.length})
+              </h2>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {intervalMinutes > 0 && (
+                <div className="text-xs text-slate-400 hidden sm:flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>Next check:</span>
+                  <span className="font-mono text-white font-bold">{formatCountdown(countdownSeconds)}</span>
+                </div>
+              )}
+
+              <button
+                onClick={() => handleCheckAllMovies()}
+                disabled={checkingAll}
+                className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs border border-slate-800 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${checkingAll ? 'animate-spin' : ''}`} />
+                <span>Check All ({movies.length})</span>
+              </button>
+            </div>
+          </div>
+
+          {/* List of Tracked Movie Cards */}
+          <div className="space-y-3">
+            {movies.map((m) => {
+              const isLive = m.lastStatus === 'LIVE';
+              const isListed = m.lastStatus === 'LISTED_COMING_SOON';
+              const isCheckingThis = checkingMovieId === m.id;
+              const placeObj = POPULAR_PLACES.find((p) => p.slug === (m.region || 'karwar')) || {
+                name: (m.region || 'karwar').toUpperCase(),
+                cinema: 'Local Multiplexes',
+              };
+
+              return (
+                <div
+                  key={m.id}
+                  className={`bg-[#131622] rounded-2xl p-5 border transition-all ${
+                    isLive
+                      ? 'border-emerald-500/60 shadow-lg shadow-emerald-500/10'
+                      : 'border-slate-800/90 hover:border-slate-700'
+                  }`}
+                >
+                  {/* Top Row: Region Badge & Live Status */}
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-800/60">
+                    <div className="flex items-center gap-2">
+                      {/* Region Tag */}
+                      <span className="px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                        {placeObj.name}
+                      </span>
+                      <span className="text-xs text-slate-400 hidden sm:inline truncate max-w-[200px]">
+                        {placeObj.cinema}
+                      </span>
+                    </div>
+
+                    {/* Status Badge */}
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          isLive
+                            ? 'bg-emerald-400 animate-ping'
+                            : isListed
+                            ? 'bg-amber-400 animate-pulse'
+                            : 'bg-rose-500'
+                        }`}
+                      />
+                      <span
+                        className={`text-xs font-bold uppercase tracking-wider ${
+                          isLive
+                            ? 'text-emerald-400 font-extrabold'
+                            : isListed
+                            ? 'text-amber-400'
+                            : 'text-rose-400'
+                        }`}
+                      >
+                        {isLive ? 'IN STOCK / TICKETS LIVE' : isListed ? 'COMING SOON' : 'MONITORING'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Middle: Movie Title & Info */}
+                  <div className="py-3">
+                    <h3 className="text-base sm:text-lg font-bold text-white tracking-tight">
+                      {m.title}
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Keywords: {m.keywords && m.keywords.length > 0 ? m.keywords.join(', ') : m.title}
+                    </p>
+                  </div>
+
+                  {/* Bottom Row: Metadata & Actions */}
+                  <div className="pt-3 border-t border-slate-800/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                    {/* Meta Info */}
+                    <div className="flex items-center gap-4 text-slate-400 font-mono text-[11px]">
+                      <div>
+                        <span className="text-slate-500 uppercase block text-[9px]">PLACE</span>
+                        <span className="text-slate-200 font-sans font-semibold">{placeObj.name}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 uppercase block text-[9px]">CHECKS</span>
+                        <span className="text-slate-200">{intervalMinutes > 0 ? `${intervalMinutes}m` : 'Manual'}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 uppercase block text-[9px]">LAST CHECKED</span>
+                        <span className="text-slate-200">{formatTimeAgo(m.lastCheckTime)}</span>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                      {/* Check Now Button */}
+                      <button
+                        onClick={() => handleCheckSingleMovie(m)}
+                        disabled={isCheckingThis || checkingAll}
+                        className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-indigo-300 hover:text-white font-semibold text-xs border border-indigo-500/30 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${isCheckingThis ? 'animate-spin' : ''}`} />
+                        <span>{isCheckingThis ? 'Checking...' : 'Check Now'}</span>
+                      </button>
+
+                      {/* Direct BMS Link Button */}
+                      {m.bookingUrl && (
+                        <a
+                          href={m.bookingUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`px-3 py-1.5 rounded-lg font-semibold text-xs flex items-center gap-1 transition-colors ${
+                            isLive
+                              ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/30 font-bold'
+                              : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
+                          }`}
+                        >
+                          <Ticket className="w-3.5 h-3.5" />
+                          <span>{isLive ? 'Book Tickets' : 'BookMyShow'}</span>
+                          <ExternalLink className="w-3 h-3 ml-0.5" />
+                        </a>
+                      )}
+
+                      {/* Delete Button */}
+                      {movies.length > 1 && (
+                        <button
+                          onClick={() => handleDeleteTracker(m.id, m.title)}
+                          className="p-1.5 rounded-lg hover:bg-rose-500/20 text-slate-500 hover:text-rose-400 transition-colors"
+                          title={`Delete "${m.title}"`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
-      )}
+      </div>
     </main>
   );
 }

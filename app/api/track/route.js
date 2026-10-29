@@ -11,6 +11,7 @@ export async function POST(request) {
       sendTicketsLiveAlert,
       loadState,
       saveState,
+      addMovieToState,
     } = require('../../../tracker');
 
     const body = await request.json().catch(() => ({}));
@@ -21,16 +22,34 @@ export async function POST(request) {
 
     // Check specific movie if movieId provided
     if (movieId && !all) {
-      const targetMovie = (state.movies || []).find(m => m.id === movieId);
+      const searchId = String(movieId).toLowerCase().trim();
+      const searchTitle = String(body.title || body.movie?.title || '').toLowerCase().trim();
+      const searchRegion = String(body.region || body.movie?.region || '').toLowerCase().trim();
+
+      let targetMovie = (state.movies || []).find(
+        m => m.id.toLowerCase() === searchId ||
+        (m.title.toLowerCase() === searchTitle && (m.region || '').toLowerCase() === searchRegion) ||
+        (searchTitle && m.title.toLowerCase() === searchTitle && searchId.includes(m.id.toLowerCase()))
+      );
+
+      // If still not found in state, auto-register it from payload
       if (!targetMovie) {
-        return NextResponse.json(
-          { success: false, error: `Movie with id "${movieId}" not found in tracker state.` },
-          { status: 404 }
-        );
+        const fallbackTitle = body.title || body.movie?.title || (movieId.includes('-') ? movieId.split('-')[0] : movieId);
+        const fallbackRegion = body.region || body.movie?.region || (movieId.includes('-') ? movieId.split('-').slice(1).join('-') : 'karwar');
+        const fallbackKeywords = body.keywords || body.movie?.keywords || [fallbackTitle];
+
+        console.log(`[API:TRACK] Auto-registering missing movie "${fallbackTitle}" in ${fallbackRegion}`);
+        const added = addMovieToState({
+          id: movieId,
+          title: fallbackTitle,
+          region: fallbackRegion,
+          keywords: fallbackKeywords,
+        });
+        targetMovie = added.movie;
       }
 
-      console.log(`[API:TRACK] Manual check for single movie "${targetMovie.title}"`);
-      const result = await checkMovieAvailability(targetMovie);
+      console.log(`[API:TRACK] Manual check for single movie "${targetMovie.title}" [Region: ${(targetMovie.region || 'karwar').toUpperCase()}]`);
+      const result = await checkMovieAvailability(targetMovie, null, targetMovie.region);
 
       targetMovie.lastCheckTime = nowIso;
       targetMovie.detectedTitle = result.movieTitle;
@@ -75,11 +94,14 @@ export async function POST(request) {
     console.log(`[API:TRACK] Manual batch check for all tracked movies in ${activeRegion}`);
     const { results } = await checkAllMovies(state.movies, { sendAlerts: true, region: activeRegion });
 
+    // Re-load state after checkAllMovies updates it so we return fresh movie data
+    const updatedState = loadState();
+
     return NextResponse.json({
       success: true,
       mode: 'all',
       results,
-      movies: state.movies,
+      movies: updatedState.movies,
       timestamp: nowIso,
     });
   } catch (error) {

@@ -221,16 +221,23 @@ export default function TrackerDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           movieId: movie.id,
+          title: movie.title,
           region: movie.region || 'karwar',
+          keywords: movie.keywords,
+          movie,
         }),
       });
       const data = await res.json();
 
       if (data.success) {
-        const { result, movie: updatedMovie, alertDispatched } = data;
-        setMovies((prev) =>
-          prev.map((m) => (m.id === updatedMovie.id ? { ...m, ...updatedMovie } : m))
-        );
+        const { result, movie: updatedMovie, alertDispatched, movies: updatedMovies } = data;
+        if (updatedMovies && updatedMovies.length > 0) {
+          setMovies(updatedMovies);
+        } else {
+          setMovies((prev) =>
+            prev.map((m) => (m.id === updatedMovie.id ? { ...m, ...updatedMovie } : m))
+          );
+        }
 
         if (result.isLive) {
           setFeedback({

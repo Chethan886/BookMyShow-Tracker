@@ -45,11 +45,47 @@
         "PVR, INOX, Cinepolis"
       ],
       "lastAlertSentTime": null
+    },
+    {
+      "id": "ramayana-karwar-4d8s",
+      "title": "Ramayana",
+      "keywords": [
+        "Ramayana"
+      ],
+      "region": "karwar",
+      "alertSent": false,
+      "lastCheckTime": null,
+      "lastStatus": "NOT_YET_LISTED",
+      "detectedTitle": null,
+      "bookingUrl": "https://in.bookmyshow.com/explore/movies-karwar",
+      "theaters": [
+        "Miraj Cinemas: Geetanjali, Karwar"
+      ],
+      "lastAlertSentTime": null,
+      "addedAt": "2026-10-29T17:18:14.284Z"
+    },
+    {
+      "id": "ramayana-bengaluru-4d8u",
+      "title": "Ramayana",
+      "keywords": [
+        "Ramayana"
+      ],
+      "region": "bengaluru",
+      "alertSent": false,
+      "lastCheckTime": null,
+      "lastStatus": "NOT_YET_LISTED",
+      "detectedTitle": null,
+      "bookingUrl": "https://in.bookmyshow.com/explore/movies-bengaluru",
+      "theaters": [
+        "PVR, INOX, Cinepolis"
+      ],
+      "lastAlertSentTime": null,
+      "addedAt": "2026-10-29T17:18:14.286Z"
     }
   ],
   "alertSent": false,
   "lastCheckTime": null,
-  "lastStatus": "INITIALIZED",
+  "lastStatus": "NOT_YET_LISTED",
   "detectedTitle": null,
   "bookingUrl": "https://in.bookmyshow.com/explore/movies-karwar",
   "theaters": [

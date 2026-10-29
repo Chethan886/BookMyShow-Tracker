@@ -53,7 +53,9 @@ const CONFIG = {
   discordMention: process.env.DISCORD_MENTION !== undefined ? process.env.DISCORD_MENTION : '@everyone',
 
   // State Persistence File Path
-  stateFile: path.resolve(__dirname, process.env.STATE_FILE || 'state.json'),
+  // process.cwd() = project root in local dev, GitHub Actions, and Vercel serverless.
+  // __dirname can be /var/task/app in Vercel, so we use cwd() which always = project root.
+  stateFile: path.join(process.cwd(), process.env.STATE_FILE || 'state.json'),
 
   // Default check interval in minutes (5, 10, 15, 20, 30, 60)
   defaultIntervalMinutes: parseInt(process.env.CHECK_INTERVAL_MINUTES || '15', 10),
@@ -78,6 +80,9 @@ function getRegionUrls(regionSlug) {
     regionHome: `https://in.bookmyshow.com/explore/movies-${r}`,
     regionMovies: `https://in.bookmyshow.com/${r}/movies`,
     regionUpcoming: `https://in.bookmyshow.com/explore/upcoming-movies-${r}`,
+    // Public JSON API endpoints â€” much less likely to 403 than rendered pages
+    nowShowingApi: `https://in.bookmyshow.com/api/explore/v1/list/movies?appCode=MOBAND2&appVersion=14390&language=EN&status=nowShowing&layoutType=MDOT&city=${r}&homeCityCode=${r}&limit=10&totalCount=10`,
+    comingSoonApi: `https://in.bookmyshow.com/api/explore/v1/list/movies?appCode=MOBAND2&appVersion=14390&language=EN&status=comingSoon&layoutType=MDOT&city=${r}&homeCityCode=${r}&limit=10&totalCount=10`,
     quickBookApi: `https://in.bookmyshow.com/serv/getData?cmd=QUICKBOOK&type=MT&f=json`,
   };
 }
@@ -584,10 +589,57 @@ function parseQuickBookData(data, matcher, regionHomeUrl) {
 }
 
 // ==========================================
-// REGION PAGE FETCHING (Cached per Region)
+// REGION PAGE FETCHING (API-first, HTML fallback)
 // ==========================================
 
 const regionalCache = {};
+
+/**
+ * Fetch BMS public API JSON for now-showing + coming-soon movies in a region.
+ * These API endpoints are far less aggressively rate-limited than the rendered HTML pages.
+ */
+async function fetchBmsApiMovies(regionSlug) {
+  const r = (regionSlug || CONFIG.region || 'karwar').toLowerCase().trim();
+  const baseParams = new URLSearchParams({
+    appCode: 'MOBAND2',
+    appVersion: '14390',
+    language: 'EN',
+    layoutType: 'MDOT',
+    city: r,
+    homeCityCode: r,
+    limit: '10',
+    totalCount: '10',
+  });
+
+  const apiHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-IN,en;q=0.9,hi;q=0.8',
+    'X-App-Code': 'MOBAND2',
+    'X-Appversion': '14390',
+    'Referer': `https://in.bookmyshow.com/explore/movies-${r}`,
+    'Origin': 'https://in.bookmyshow.com',
+  };
+
+  const results = {};
+
+  for (const status of ['nowShowing', 'comingSoon']) {
+    const url = `https://in.bookmyshow.com/api/explore/v1/list/movies?${baseParams.toString()}&status=${status}`;
+    try {
+      console.log(`[API] Fetching BMS ${status} API for ${r.toUpperCase()}...`);
+      const res = await httpClient.get(url, { headers: apiHeaders });
+      results[status] = res.data;
+      const count = res.data?.BookMyShow?.arrEvents?.length || res.data?.arrEvents?.length || 0;
+      console.log(`[API] ${r.toUpperCase()} ${status}: ${count} movie(s) returned`);
+    } catch (err) {
+      const code = err.response?.status || err.code || 'ERR';
+      console.warn(`[API] ${r.toUpperCase()} ${status} failed [${code}]:`, err.message);
+      results[status] = null;
+    }
+  }
+
+  return results;
+}
 
 async function fetchRegionPages(targetRegion, forceFresh = false) {
   const r = (targetRegion || CONFIG.region || 'karwar').toLowerCase().trim();
@@ -598,26 +650,31 @@ async function fetchRegionPages(targetRegion, forceFresh = false) {
   }
 
   const regionUrls = getRegionUrls(r);
-  const pages = [
+  const headers = createBrowserHeaders(r);
+
+  // --- Strategy A: Public JSON API (preferred, rarely 403d) ---
+  const apiData = await fetchBmsApiMovies(r);
+
+  // --- Strategy B: HTML pages (fallback; may 403 server-side) ---
+  const htmlPages = [
     { url: regionUrls.regionHome, name: `${r.toUpperCase()} Explore Movies` },
     { url: regionUrls.regionMovies, name: `${r.toUpperCase()} Movies Landing` },
     { url: regionUrls.regionUpcoming, name: `${r.toUpperCase()} Upcoming Movies` },
   ];
 
-  const headers = createBrowserHeaders(r);
   const fetchedPages = [];
-
-  for (const page of pages) {
+  for (const page of htmlPages) {
     try {
       console.log(`\n--- Fetching: ${page.name} (${page.url}) ---`);
       const res = await fetchWithRetry(page.url, { headers });
       fetchedPages.push({ ...page, html: res.data });
     } catch (err) {
-      console.warn(`[FETCH] Could not fetch ${page.name}:`, err.message);
+      console.warn(`[FETCH] Could not fetch ${page.name}: ${err.message}`);
       fetchedPages.push({ ...page, html: null, error: err.message });
     }
   }
 
+  // --- Strategy C: QuickBook API fallback ---
   let quickBookData = null;
   try {
     console.log(`[HTTP] Checking BMS QuickBook API for ${r.toUpperCase()}...`);
@@ -635,7 +692,7 @@ async function fetchRegionPages(targetRegion, forceFresh = false) {
 
   regionalCache[r] = {
     timestamp: now,
-    data: { region: r, regionUrls, pages: fetchedPages, quickBookData },
+    data: { region: r, regionUrls, pages: fetchedPages, quickBookData, apiData },
   };
 
   return regionalCache[r].data;
@@ -667,6 +724,34 @@ async function checkMovieAvailability(movieInput, preloadedData = null, override
   };
 
   const data = preloadedData || (await fetchRegionPages(effectiveRegion));
+
+  // =============================================
+  // Layer 0: BMS Public JSON API (API-first, avoids 403)
+  // =============================================
+  if (data.apiData) {
+    for (const [statusKey, apiPayload] of Object.entries(data.apiData)) {
+      if (!apiPayload) continue;
+      // BMS API returns events in BookMyShow.arrEvents or root arrEvents
+      const events = apiPayload?.BookMyShow?.arrEvents || apiPayload?.arrEvents || [];
+      for (const ev of events) {
+        const evName = ev.EventTitle || ev.EventName || ev.name || '';
+        if (isTitleMatch(evName, matcher)) {
+          const evUrl = ev.EventURL || ev.seoUrl || ev.url || '';
+          const fullUrl = evUrl
+            ? (evUrl.startsWith('http') ? evUrl : `https://in.bookmyshow.com${evUrl}`)
+            : regionUrls.regionHome;
+          const isBookable = statusKey === 'nowShowing' || Boolean(ev.isBookable || ev.isEventLive);
+          result.isFound = true;
+          result.isLive = isBookable;
+          result.movieTitle = evName;
+          result.bookingUrl = fullUrl;
+          result.strategyUsed = `BMS_API_${statusKey.toUpperCase()}`;
+          console.log(`[DETECTION] BMS API ${statusKey} hit: "${evName}" | Live: ${isBookable}`);
+          if (isBookable) return result;
+        }
+      }
+    }
+  }
 
   for (const page of data.pages) {
     if (!page.html) continue;
@@ -726,7 +811,7 @@ async function checkAllMovies(moviesList = null, options = {}) {
   const defaultRegion = (options.region || state.settings?.region || CONFIG.region || 'karwar').toLowerCase();
 
   console.log(`\n=======================================================`);
-  console.log(`🎬 Checking ${moviesToCheck.length} Movie(s) in BookMyShow [Region: ${defaultRegion.toUpperCase()}]`);
+  console.log(`ðŸŽ¬ Checking ${moviesToCheck.length} Movie(s) in BookMyShow [Region: ${defaultRegion.toUpperCase()}]`);
   console.log(`=======================================================`);
 
   // Group movies by their target region to fetch pages once per distinct region
@@ -747,7 +832,10 @@ async function checkAllMovies(moviesList = null, options = {}) {
       const res = await checkMovieAvailability(m, preloaded, regionSlug);
       results.push(res);
 
-      const movieEntry = state.movies.find(item => item.id === m.id || item.title.toLowerCase() === m.title.toLowerCase());
+      const movieEntry = state.movies.find(
+        item => item.id === m.id ||
+        (item.title.toLowerCase() === m.title.toLowerCase() && (item.region || '').toLowerCase() === regionSlug.toLowerCase())
+      );
       if (movieEntry) {
         movieEntry.lastCheckTime = nowIso;
         movieEntry.detectedTitle = res.movieTitle;
@@ -758,7 +846,7 @@ async function checkAllMovies(moviesList = null, options = {}) {
           movieEntry.lastStatus = 'LIVE';
           if (!movieEntry.alertSent || CONFIG.forceAlert) {
             if (options.sendAlerts !== false) {
-              console.log(`[ALERT] 🚨 Live tickets detected for "${movieEntry.title}" in ${regionSlug.toUpperCase()}! Sending Discord alert...`);
+              console.log(`[ALERT] ðŸš¨ Live tickets detected for "${movieEntry.title}" in ${regionSlug.toUpperCase()}! Sending Discord alert...`);
               const sent = await sendTicketsLiveAlert(res);
               if (sent) {
                 movieEntry.alertSent = true;
@@ -830,41 +918,41 @@ async function sendTicketsLiveAlert(details) {
     : '';
 
   const embed = {
-    title: `🚨 TICKETS ARE LIVE: ${title}!`,
+    title: `ðŸš¨ TICKETS ARE LIVE: ${title}!`,
     description: `Bookings have opened or showtimes have been listed on **BookMyShow ${regionName}** for **${title}**!\n\nGrab your seats before shows fill up!`,
     url: details.bookingUrl || getRegionUrls(regionSlug).regionHome,
     color: 16270436, // BMS Red (#F84464)
     fields: [
       {
-        name: '🎬 Movie Title',
+        name: 'ðŸŽ¬ Movie Title',
         value: `**${title}**`,
         inline: true,
       },
       {
-        name: '📍 Region / Place',
+        name: 'ðŸ“ Region / Place',
         value: `**${regionName}** (\`${regionSlug}\`)`,
         inline: true,
       },
       {
-        name: '🏛️ Cinema(s)',
+        name: 'ðŸ›ï¸ Cinema(s)',
         value: details.theaters && details.theaters.length > 0
           ? details.theaters.join('\n')
           : getDefaultCinemaForRegion(regionSlug),
         inline: false,
       },
       {
-        name: '🎟️ Booking Status',
-        value: '🟢 **TICKETS LIVE / ADVANCE BOOKING OPEN**',
+        name: 'ðŸŽŸï¸ Booking Status',
+        value: 'ðŸŸ¢ **TICKETS LIVE / ADVANCE BOOKING OPEN**',
         inline: true,
       },
       {
-        name: '⚡ Detection Method',
+        name: 'âš¡ Detection Method',
         value: `\`${details.strategyUsed || 'Automated Scraper'}\``,
         inline: true,
       },
       {
-        name: '🔗 Direct Booking Link',
-        value: `[👉 Click here to Book on BookMyShow ${regionSlug.toUpperCase()}](${details.bookingUrl || getRegionUrls(regionSlug).regionHome})`,
+        name: 'ðŸ”— Direct Booking Link',
+        value: `[ðŸ‘‰ Click here to Book on BookMyShow ${regionSlug.toUpperCase()}](${details.bookingUrl || getRegionUrls(regionSlug).regionHome})`,
         inline: false,
       },
     ],
@@ -872,14 +960,14 @@ async function sendTicketsLiveAlert(details) {
       url: 'https://in.bmscdn.com/webin/common/icons/bms.png',
     },
     footer: {
-      text: `BookMyShow ${regionSlug.toUpperCase()} Tracker • Instant Push Alert`,
+      text: `BookMyShow ${regionSlug.toUpperCase()} Tracker â€¢ Instant Push Alert`,
       icon_url: 'https://assets-in.bmscdn.com/webin/common/favicon.ico',
     },
     timestamp: new Date().toISOString(),
   };
 
   const payload = {
-    content: `${mentionText}🚨 **TICKETS ARE LIVE IN ${regionSlug.toUpperCase()} for ${title}!**`,
+    content: `${mentionText}ðŸš¨ **TICKETS ARE LIVE IN ${regionSlug.toUpperCase()} for ${title}!**`,
     embeds: [embed],
   };
 
@@ -900,53 +988,53 @@ async function sendTestAlert(movieTitle = 'Ramayana', regionSlug = 'karwar') {
     : '';
 
   const embed = {
-    title: `🧪 Test Alert: BookMyShow Tracker Connected!`,
+    title: `ðŸ§ª Test Alert: BookMyShow Tracker Connected!`,
     description: `Your Discord Webhook and multi-region tracking pipeline is **fully operational**! When tickets for **${movieTitle}** (or any added movie) open in **${regionName}**, you will receive an instant notification here.`,
     url: getRegionUrls(r).regionHome,
     color: 5763719, // Emerald Green
     fields: [
       {
-        name: '📍 Monitored Place',
+        name: 'ðŸ“ Monitored Place',
         value: `**${regionName}** (\`${r}\`)`,
         inline: true,
       },
       {
-        name: '🎯 Sample Movie',
+        name: 'ðŸŽ¯ Sample Movie',
         value: `**${movieTitle}**`,
         inline: true,
       },
       {
-        name: '🏛️ Monitored Theaters',
+        name: 'ðŸ›ï¸ Monitored Theaters',
         value: getDefaultCinemaForRegion(r),
         inline: true,
       },
       {
-        name: '🔔 Mention Level',
+        name: 'ðŸ”” Mention Level',
         value: `\`${CONFIG.discordMention}\``,
         inline: true,
       },
       {
-        name: '🔗 Monitored URL',
+        name: 'ðŸ”— Monitored URL',
         value: `[BookMyShow ${r.toUpperCase()} Page](${getRegionUrls(r).regionHome})`,
         inline: false,
       },
     ],
     footer: {
-      text: 'BookMyShow Multi-Region Tracker • Test Mode Successful',
+      text: 'BookMyShow Multi-Region Tracker â€¢ Test Mode Successful',
     },
     timestamp: new Date().toISOString(),
   };
 
   const payload = {
-    content: `${mentionText}✅ **BookMyShow ${r.toUpperCase()} Tracker Test Notification**`,
+    content: `${mentionText}âœ… **BookMyShow ${r.toUpperCase()} Tracker Test Notification**`,
     embeds: [embed],
   };
 
   const success = await sendDiscordWebhook(payload);
   if (success) {
-    console.log(`[TEST] ✅ Verification test passed! Check your Discord channel.`);
+    console.log(`[TEST] âœ… Verification test passed! Check your Discord channel.`);
   } else {
-    console.error(`[TEST] ❌ Test failed. Please check your DISCORD_WEBHOOK_URL.`);
+    console.error(`[TEST] âŒ Test failed. Please check your DISCORD_WEBHOOK_URL.`);
   }
   return success;
 }
@@ -960,9 +1048,9 @@ async function main() {
   const activeRegion = state.settings?.region || CONFIG.region || 'karwar';
 
   console.log(`=======================================================`);
-  console.log(`🎬 BookMyShow Multi-Region Ticket Tracker`);
-  console.log(`📍 Active Place: ${activeRegion.toUpperCase()}`);
-  console.log(`⏰ Time: ${new Date().toISOString()}`);
+  console.log(`ðŸŽ¬ BookMyShow Multi-Region Ticket Tracker`);
+  console.log(`ðŸ“ Active Place: ${activeRegion.toUpperCase()}`);
+  console.log(`â° Time: ${new Date().toISOString()}`);
   console.log(`=======================================================`);
 
   if (CONFIG.testMode) {
@@ -1015,3 +1103,4 @@ if (require.main === module) {
     process.exit(CONFIG.testMode ? 1 : 0);
   });
 }
+

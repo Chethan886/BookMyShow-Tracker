@@ -1,4 +1,10 @@
 {
+  "settings": {
+    "region": "karwar",
+    "regionName": "Karwar, Karnataka",
+    "checkIntervalMinutes": 15,
+    "discordMention": "@everyone"
+  },
   "movies": [
     {
       "id": "ramayana",
@@ -20,10 +26,6 @@
       "lastAlertSentTime": null
     }
   ],
-  "settings": {
-    "region": "karwar",
-    "discordMention": "@everyone"
-  },
   "alertSent": false,
   "lastCheckTime": null,
   "lastStatus": "INITIALIZED",

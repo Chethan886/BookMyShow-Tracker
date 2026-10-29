@@ -71,8 +71,9 @@ export async function POST(request) {
     }
 
     // Otherwise, check all tracked movies in batch
-    console.log('[API:TRACK] Manual batch check for all tracked movies');
-    const { results } = await checkAllMovies(state.movies, { sendAlerts: true });
+    const activeRegion = (body.region || state.settings?.region || 'karwar').toLowerCase();
+    console.log(`[API:TRACK] Manual batch check for all tracked movies in ${activeRegion}`);
+    const { results } = await checkAllMovies(state.movies, { sendAlerts: true, region: activeRegion });
 
     return NextResponse.json({
       success: true,

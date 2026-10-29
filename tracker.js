@@ -1,9 +1,9 @@
 /**
- * BookMyShow Movie Ticket Availability Tracker for Karwar
+ * BookMyShow Movie Ticket Availability Tracker
  * 
  * Automates detection of movie release and booking availability
- * for multiple tracked movies (e.g. "Ramayana", "Kantara", etc.)
- * in BookMyShow Karwar, dispatching instant rich Discord webhook alerts.
+ * across selectable regions (e.g. Karwar, Bengaluru, Mangaluru, etc.)
+ * for multiple tracked movies, dispatching instant rich Discord webhook alerts.
  * Designed for serverless scheduled runs on GitHub Actions and Next.js / Vercel.
  */
 
@@ -14,11 +14,31 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 
 // ==========================================
+// POPULAR REGION PRESETS
+// ==========================================
+
+const POPULAR_PLACES = [
+  { slug: 'karwar', name: 'Karwar, Karnataka', cinema: 'Miraj Cinemas: Geetanjali, Karwar' },
+  { slug: 'bengaluru', name: 'Bengaluru / Bangalore', cinema: 'PVR, INOX, Cinepolis' },
+  { slug: 'mangaluru', name: 'Mangaluru / Mangalore', cinema: 'PVR, Bharat Cinemas, Cinepolis' },
+  { slug: 'hubli', name: 'Hubballi / Hubli', cinema: 'Cinepolis, PVR Urban Oasis' },
+  { slug: 'belgaum', name: 'Belagavi / Belgaum', cinema: 'Inox, Carnival Cinemas' },
+  { slug: 'mysuru', name: 'Mysuru / Mysore', cinema: 'DRC Cinemas, INOX' },
+  { slug: 'manipal', name: 'Manipal / Udupi', cinema: 'Bharat Cinemas, INOX' },
+  { slug: 'goa', name: 'Goa (Panaji / Margao)', cinema: 'INOX Panaji, Osia' },
+  { slug: 'mumbai', name: 'Mumbai', cinema: 'PVR, INOX, Cinepolis' },
+  { slug: 'hyderabad', name: 'Hyderabad', cinema: 'Prasads Multiplex, AMB Cinemas' },
+  { slug: 'chennai', name: 'Chennai', cinema: 'Sathyam Cinemas, PVR' },
+  { slug: 'ncr', name: 'Delhi-NCR', cinema: 'PVR Directors Cut, Cinepolis' },
+  { slug: 'pune', name: 'Pune', cinema: 'Cinepolis, PVR Phoenix' },
+];
+
+// ==========================================
 // CONFIGURATION & ENVIRONMENT VARIABLES
 // ==========================================
 
 const CONFIG = {
-  // Target Region (BookMyShow slug)
+  // Default Region (BookMyShow slug)
   region: (process.env.BMS_REGION || 'karwar').toLowerCase().trim(),
 
   // Default fallback movie keywords if state is empty
@@ -35,6 +55,9 @@ const CONFIG = {
   // State Persistence File Path
   stateFile: path.resolve(__dirname, process.env.STATE_FILE || 'state.json'),
 
+  // Default check interval in minutes (5, 10, 15, 20, 30, 60)
+  defaultIntervalMinutes: parseInt(process.env.CHECK_INTERVAL_MINUTES || '15', 10),
+
   // Execution Flags
   forceAlert: process.env.FORCE_ALERT === 'true',
   testMode: process.argv.includes('--test') || process.env.TEST_ALERT === 'true',
@@ -45,22 +68,37 @@ const CONFIG = {
   retryDelayMs: parseInt(process.env.RETRY_DELAY_MS || '2500', 10),
 };
 
-// Target URLs for BookMyShow Karwar
-const URLS = {
-  regionHome: `https://in.bookmyshow.com/explore/movies-${CONFIG.region}`,
-  regionMovies: `https://in.bookmyshow.com/${CONFIG.region}/movies`,
-  regionUpcoming: `https://in.bookmyshow.com/explore/upcoming-movies-${CONFIG.region}`,
-  quickBookApi: `https://in.bookmyshow.com/serv/getData?cmd=QUICKBOOK&type=MT&f=json`,
-};
+/**
+ * Returns dynamic BookMyShow URLs for any given region slug
+ */
+function getRegionUrls(regionSlug) {
+  const r = String(regionSlug || CONFIG.region || 'karwar').toLowerCase().trim();
+  return {
+    region: r,
+    regionHome: `https://in.bookmyshow.com/explore/movies-${r}`,
+    regionMovies: `https://in.bookmyshow.com/${r}/movies`,
+    regionUpcoming: `https://in.bookmyshow.com/explore/upcoming-movies-${r}`,
+    quickBookApi: `https://in.bookmyshow.com/serv/getData?cmd=QUICKBOOK&type=MT&f=json`,
+  };
+}
 
-// Known Karwar Cinema (for fallback display if not dynamically parsed)
+// Initial default URLs for legacy imports
+const URLS = getRegionUrls(CONFIG.region);
+
+// Default fallback cinema
 const DEFAULT_KARWAR_CINEMA = 'Miraj Cinemas: Geetanjali, Karwar';
+
+function getDefaultCinemaForRegion(regionSlug) {
+  const found = POPULAR_PLACES.find(p => p.slug === regionSlug.toLowerCase());
+  return found ? found.cinema : `${regionSlug.toUpperCase()} Theaters & Multiplexes`;
+}
 
 // Default baseline movie
 const DEFAULT_RAMAYANA_MOVIE = {
   id: 'ramayana',
   title: 'Ramayana',
   keywords: ['Ramayana', 'Ramayana: Part 1', 'Ramayana - Part 1', 'Ramayan'],
+  region: 'karwar',
   alertSent: false,
   lastCheckTime: null,
   lastStatus: 'NOT_YET_LISTED',
@@ -74,40 +112,37 @@ const DEFAULT_RAMAYANA_MOVIE = {
 // HTTP CLIENT SETUP (Browser Emulation)
 // ==========================================
 
-const browserHeaders = {
-  'User-Agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Accept':
-    'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-  'Accept-Language': 'en-US,en;q=0.9,hi;q=0.8,kn;q=0.7',
-  'Cache-Control': 'no-cache',
-  'Pragma': 'no-cache',
-  'Sec-Ch-Ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-  'Sec-Ch-Ua-Mobile': '?0',
-  'Sec-Ch-Ua-Platform': '"Windows"',
-  'Sec-Fetch-Dest': 'document',
-  'Sec-Fetch-Mode': 'navigate',
-  'Sec-Fetch-Site': 'none',
-  'Sec-Fetch-User': '?1',
-  'Upgrade-Insecure-Requests': '1',
-  'Referer': 'https://in.bookmyshow.com/',
-  'Cookie': `RgnCode=${CONFIG.region.toUpperCase()}; bmsId=1.${Date.now()}.${Math.floor(Math.random() * 1000000)};`,
-};
+function createBrowserHeaders(regionSlug) {
+  const r = (regionSlug || CONFIG.region || 'karwar').toUpperCase();
+  return {
+    'User-Agent':
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept':
+      'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+    'Accept-Language': 'en-US,en;q=0.9,hi;q=0.8,kn;q=0.7',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+    'Sec-Ch-Ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1',
+    'Referer': 'https://in.bookmyshow.com/',
+    'Cookie': `RgnCode=${r}; bmsId=1.${Date.now()}.${Math.floor(Math.random() * 1000000)};`,
+  };
+}
 
 const httpClient = axios.create({
   timeout: CONFIG.timeoutMs,
-  headers: browserHeaders,
+  headers: createBrowserHeaders(CONFIG.region),
   validateStatus: status => status >= 200 && status < 400,
 });
 
-/**
- * Sleep helper for backoff delays
- */
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-/**
- * Robust fetch wrapper with exponential backoff retries
- */
 async function fetchWithRetry(url, options = {}, retries = CONFIG.maxRetries) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
@@ -148,12 +183,13 @@ function slugify(text) {
  */
 function loadState() {
   const defaultState = {
-    movies: [ { ...DEFAULT_RAMAYANA_MOVIE } ],
     settings: {
       region: CONFIG.region,
+      regionName: 'Karwar, Karnataka',
+      checkIntervalMinutes: CONFIG.defaultIntervalMinutes,
       discordMention: CONFIG.discordMention,
     },
-    // Top-level legacy aliases for backward compatibility
+    movies: [ { ...DEFAULT_RAMAYANA_MOVIE } ],
     alertSent: false,
     lastCheckTime: null,
     lastStatus: 'NOT_RUN_YET',
@@ -176,6 +212,7 @@ function loadState() {
     if (!parsed.movies || !Array.isArray(parsed.movies)) {
       const migrated = {
         ...DEFAULT_RAMAYANA_MOVIE,
+        region: parsed.settings?.region || CONFIG.region,
         alertSent: Boolean(parsed.alertSent),
         lastCheckTime: parsed.lastCheckTime || null,
         lastStatus: parsed.lastStatus || 'NOT_YET_LISTED',
@@ -191,11 +228,17 @@ function loadState() {
       parsed.movies = [ { ...DEFAULT_RAMAYANA_MOVIE } ];
     }
 
-    // Mirror first movie to top-level for legacy consumers
+    // Ensure settings exist
+    const settings = {
+      ...defaultState.settings,
+      ...(parsed.settings || {}),
+    };
+
     const primary = parsed.movies[0];
     return {
       ...defaultState,
       ...parsed,
+      settings,
       alertSent: primary.alertSent,
       lastCheckTime: primary.lastCheckTime,
       lastStatus: primary.lastStatus,
@@ -213,7 +256,7 @@ function loadState() {
 function saveState(state) {
   try {
     fs.writeFileSync(CONFIG.stateFile, JSON.stringify(state, null, 2), 'utf8');
-    console.log(`[STATE] Saved state to ${path.basename(CONFIG.stateFile)} (${state.movies ? state.movies.length : 1} movies)`);
+    console.log(`[STATE] Saved state to ${path.basename(CONFIG.stateFile)} (${state.movies ? state.movies.length : 1} movies, Region: ${state.settings?.region || 'default'})`);
   } catch (error) {
     console.error(`[STATE] Failed to write state file:`, error.message);
   }
@@ -230,6 +273,8 @@ function addMovieToState(movieInput) {
   }
 
   const id = slugify(movieInput.id || title);
+  const movieRegion = (movieInput.region || state.settings?.region || CONFIG.region).toLowerCase().trim();
+  const regionUrls = getRegionUrls(movieRegion);
 
   let keywords = [];
   if (Array.isArray(movieInput.keywords)) {
@@ -247,12 +292,13 @@ function addMovieToState(movieInput) {
     id,
     title,
     keywords,
+    region: movieRegion,
     alertSent: false,
     lastCheckTime: null,
     lastStatus: 'NOT_YET_LISTED',
     detectedTitle: null,
-    bookingUrl: URLS.regionHome,
-    theaters: [DEFAULT_KARWAR_CINEMA],
+    bookingUrl: regionUrls.regionHome,
+    theaters: [getDefaultCinemaForRegion(movieRegion)],
     lastAlertSentTime: null,
     addedAt: new Date().toISOString(),
   };
@@ -276,7 +322,6 @@ function removeMovieFromState(movieId) {
   const beforeCount = state.movies.length;
   state.movies = state.movies.filter(m => m.id !== idToRemove);
 
-  // Keep at least 1 movie in state
   if (state.movies.length === 0) {
     state.movies = [ { ...DEFAULT_RAMAYANA_MOVIE } ];
   }
@@ -285,18 +330,46 @@ function removeMovieFromState(movieId) {
   return { state, removed: beforeCount > state.movies.length };
 }
 
+/**
+ * Update global settings (place/region, check interval, mention)
+ */
+function updateSettingsInState(newSettings) {
+  const state = loadState();
+  const updatedSettings = {
+    ...state.settings,
+    ...newSettings,
+  };
+
+  if (newSettings.region) {
+    updatedSettings.region = slugify(newSettings.region);
+    const place = POPULAR_PLACES.find(p => p.slug === updatedSettings.region);
+    if (place) {
+      updatedSettings.regionName = place.name;
+    } else {
+      updatedSettings.regionName = newSettings.regionName || `${updatedSettings.region.toUpperCase()}`;
+    }
+  }
+
+  if (newSettings.checkIntervalMinutes !== undefined) {
+    const mins = parseInt(newSettings.checkIntervalMinutes, 10);
+    updatedSettings.checkIntervalMinutes = isNaN(mins) ? 15 : mins;
+  }
+
+  state.settings = updatedSettings;
+  saveState(state);
+  return { state, settings: updatedSettings };
+}
+
 // ==========================================
 // MATCHER & DETECTION STRATEGIES
 // ==========================================
 
-/**
- * Creates regex and keyword sets for any movie object
- */
 function getMovieMatcher(movieInput) {
   if (!movieInput) {
     return {
       id: 'ramayana',
       title: 'Ramayana',
+      region: CONFIG.region,
       keywords: CONFIG.defaultKeywords,
       regex: CONFIG.defaultRegex,
     };
@@ -304,6 +377,7 @@ function getMovieMatcher(movieInput) {
 
   const title = movieInput.title || 'Ramayana';
   const id = movieInput.id || slugify(title);
+  const region = (movieInput.region || CONFIG.region || 'karwar').toLowerCase().trim();
 
   let keywords = [];
   if (Array.isArray(movieInput.keywords)) {
@@ -322,17 +396,13 @@ function getMovieMatcher(movieInput) {
   } else if (movieInput.regex instanceof RegExp) {
     regex = movieInput.regex;
   } else {
-    // Generate clean word-boundary regex escaping special characters
     const escapedTerms = keywords.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
     regex = new RegExp(`\\b(${escapedTerms.join('|')})\\b`, 'i');
   }
 
-  return { id, title, keywords, regex };
+  return { id, title, region, keywords, regex };
 }
 
-/**
- * Check if a text matches a specific movie's matcher
- */
 function isTitleMatch(text, matcher) {
   if (!text || typeof text !== 'string') return false;
   const clean = text.trim();
@@ -342,9 +412,6 @@ function isTitleMatch(text, matcher) {
   return m.keywords.some(kw => lower.includes(kw));
 }
 
-/**
- * Recursively search any nested JavaScript object for target movie occurrences
- */
 function searchNextDataForMovie(obj, matcher, matches = []) {
   if (!obj || typeof obj !== 'object') return matches;
 
@@ -394,9 +461,6 @@ function searchNextDataForMovie(obj, matcher, matches = []) {
   return matches;
 }
 
-/**
- * Strategy 1: Parse Next.js Hydration Data (__NEXT_DATA__)
- */
 function parseNextData(html, matcher) {
   try {
     const $ = cheerio.load(html);
@@ -416,15 +480,11 @@ function parseNextData(html, matcher) {
   return null;
 }
 
-/**
- * Strategy 2: Cheerio DOM Parsing
- */
 function parseDomForMovie(html, pageUrl, matcher) {
   const matches = [];
   try {
     const $ = cheerio.load(html);
 
-    // Look for all anchor tags
     $('a').each((_, elem) => {
       const text = $(elem).text().trim();
       const href = $(elem).attr('href') || '';
@@ -454,7 +514,6 @@ function parseDomForMovie(html, pageUrl, matcher) {
       }
     });
 
-    // Also scan for movie cards
     if (matches.length === 0) {
       $('div, h2, h3, h4, span, p').each((_, elem) => {
         const text = $(elem).text().trim();
@@ -483,10 +542,7 @@ function parseDomForMovie(html, pageUrl, matcher) {
   return matches;
 }
 
-/**
- * Strategy 3: Check BMS QuickBook catalog API
- */
-function parseQuickBookData(data, matcher) {
+function parseQuickBookData(data, matcher, regionHomeUrl) {
   if (!data || typeof data !== 'object') return null;
   try {
     const dataStr = JSON.stringify(data);
@@ -497,7 +553,7 @@ function parseQuickBookData(data, matcher) {
         if (isTitleMatch(evName, matcher)) {
           return {
             title: evName,
-            bookingUrl: URLS.regionHome,
+            bookingUrl: regionHomeUrl,
             isBookable: true,
             source: 'QUICKBOOK_API',
           };
@@ -505,7 +561,7 @@ function parseQuickBookData(data, matcher) {
       }
       return {
         title: matcher.title,
-        bookingUrl: URLS.regionHome,
+        bookingUrl: regionHomeUrl,
         isBookable: true,
         source: 'QUICKBOOK_API',
       };
@@ -517,35 +573,33 @@ function parseQuickBookData(data, matcher) {
 }
 
 // ==========================================
-// BATCH FETCHING & DETECTION
+// REGION PAGE FETCHING (Cached per Region)
 // ==========================================
 
-let inMemoryPageCache = {
-  timestamp: 0,
-  data: null,
-};
+const regionalCache = {};
 
-/**
- * Fetches all Karwar pages once and caches in-memory for 25 seconds
- * Ensures checking 10 movies takes the exact same time and requests as 1 movie
- */
-async function fetchKarwarPages(forceFresh = false) {
+async function fetchRegionPages(targetRegion, forceFresh = false) {
+  const r = (targetRegion || CONFIG.region || 'karwar').toLowerCase().trim();
   const now = Date.now();
-  if (!forceFresh && inMemoryPageCache.data && now - inMemoryPageCache.timestamp < 25000) {
-    return inMemoryPageCache.data;
+
+  if (!forceFresh && regionalCache[r] && now - regionalCache[r].timestamp < 25000) {
+    return regionalCache[r].data;
   }
 
+  const regionUrls = getRegionUrls(r);
   const pages = [
-    { url: URLS.regionHome, name: 'Karwar Explore Movies' },
-    { url: URLS.regionMovies, name: 'Karwar Movies Landing' },
-    { url: URLS.regionUpcoming, name: 'Karwar Upcoming Movies' },
+    { url: regionUrls.regionHome, name: `${r.toUpperCase()} Explore Movies` },
+    { url: regionUrls.regionMovies, name: `${r.toUpperCase()} Movies Landing` },
+    { url: regionUrls.regionUpcoming, name: `${r.toUpperCase()} Upcoming Movies` },
   ];
 
+  const headers = createBrowserHeaders(r);
   const fetchedPages = [];
+
   for (const page of pages) {
     try {
       console.log(`\n--- Fetching: ${page.name} (${page.url}) ---`);
-      const res = await fetchWithRetry(page.url);
+      const res = await fetchWithRetry(page.url, { headers });
       fetchedPages.push({ ...page, html: res.data });
     } catch (err) {
       console.warn(`[FETCH] Could not fetch ${page.name}:`, err.message);
@@ -555,11 +609,12 @@ async function fetchKarwarPages(forceFresh = false) {
 
   let quickBookData = null;
   try {
-    console.log(`[HTTP] Checking BMS QuickBook API...`);
-    const qbRes = await httpClient.get(URLS.quickBookApi, {
+    console.log(`[HTTP] Checking BMS QuickBook API for ${r.toUpperCase()}...`);
+    const qbRes = await httpClient.get(regionUrls.quickBookApi, {
       headers: {
+        ...headers,
         'Accept': 'application/json, text/plain, */*',
-        'Referer': URLS.regionHome,
+        'Referer': regionUrls.regionHome,
       },
     });
     quickBookData = qbRes.data;
@@ -567,35 +622,40 @@ async function fetchKarwarPages(forceFresh = false) {
     console.log(`[HTTP] QuickBook API returned non-fatal error:`, err.message);
   }
 
-  inMemoryPageCache = {
+  regionalCache[r] = {
     timestamp: now,
-    data: { pages: fetchedPages, quickBookData },
+    data: { region: r, regionUrls, pages: fetchedPages, quickBookData },
   };
 
-  return inMemoryPageCache.data;
+  return regionalCache[r].data;
 }
 
 /**
- * Check availability for a single movie using cached or fresh pages
+ * Check availability for a single movie in its target region
  */
-async function checkMovieAvailability(movieInput, preloadedData = null) {
+async function checkMovieAvailability(movieInput, preloadedData = null, overrideRegion = null) {
   const matcher = getMovieMatcher(movieInput);
+  const effectiveRegion = (overrideRegion || movieInput?.region || matcher.region || CONFIG.region || 'karwar').toLowerCase();
+  const regionUrls = getRegionUrls(effectiveRegion);
+  const cinemaDefault = getDefaultCinemaForRegion(effectiveRegion);
 
   const result = {
     movie: {
       id: matcher.id,
       title: matcher.title,
       keywords: matcher.keywords,
+      region: effectiveRegion,
     },
+    region: effectiveRegion,
     isFound: false,
     isLive: false,
     movieTitle: matcher.title,
-    bookingUrl: URLS.regionHome,
-    theaters: [DEFAULT_KARWAR_CINEMA],
+    bookingUrl: regionUrls.regionHome,
+    theaters: [cinemaDefault],
     strategyUsed: 'NONE',
   };
 
-  const data = preloadedData || (await fetchKarwarPages());
+  const data = preloadedData || (await fetchRegionPages(effectiveRegion));
 
   for (const page of data.pages) {
     if (!page.html) continue;
@@ -633,7 +693,7 @@ async function checkMovieAvailability(movieInput, preloadedData = null) {
 
   // Layer 3: QuickBook API Fallback
   if (data.quickBookData) {
-    const apiMatch = parseQuickBookData(data.quickBookData, matcher);
+    const apiMatch = parseQuickBookData(data.quickBookData, matcher, regionUrls.regionHome);
     if (apiMatch) {
       result.isFound = true;
       result.isLive = true;
@@ -652,51 +712,61 @@ async function checkMovieAvailability(movieInput, preloadedData = null) {
 async function checkAllMovies(moviesList = null, options = {}) {
   const state = loadState();
   const moviesToCheck = moviesList || state.movies || [];
+  const defaultRegion = (options.region || state.settings?.region || CONFIG.region || 'karwar').toLowerCase();
 
   console.log(`\n=======================================================`);
-  console.log(`🎬 Checking ${moviesToCheck.length} Tracked Movie(s) in BookMyShow Karwar`);
+  console.log(`🎬 Checking ${moviesToCheck.length} Movie(s) in BookMyShow [Region: ${defaultRegion.toUpperCase()}]`);
   console.log(`=======================================================`);
 
-  // Fetch page contents once for all movies
-  const preloaded = await fetchKarwarPages(Boolean(options.forceFresh));
-  const results = [];
+  // Group movies by their target region to fetch pages once per distinct region
+  const moviesByRegion = {};
+  for (const m of moviesToCheck) {
+    const reg = (m.region || defaultRegion).toLowerCase();
+    if (!moviesByRegion[reg]) moviesByRegion[reg] = [];
+    moviesByRegion[reg].push(m);
+  }
 
+  const results = [];
   const nowIso = new Date().toISOString();
 
-  for (const m of moviesToCheck) {
-    const res = await checkMovieAvailability(m, preloaded);
-    results.push(res);
+  for (const [regionSlug, movieList] of Object.entries(moviesByRegion)) {
+    const preloaded = await fetchRegionPages(regionSlug, Boolean(options.forceFresh));
 
-    // Find and update movie entry in state
-    const movieEntry = state.movies.find(item => item.id === m.id || item.title.toLowerCase() === m.title.toLowerCase());
-    if (movieEntry) {
-      movieEntry.lastCheckTime = nowIso;
-      movieEntry.detectedTitle = res.movieTitle;
-      movieEntry.bookingUrl = res.bookingUrl;
+    for (const m of movieList) {
+      const res = await checkMovieAvailability(m, preloaded, regionSlug);
+      results.push(res);
 
-      if (res.isLive) {
-        movieEntry.lastStatus = 'LIVE';
-        if (!movieEntry.alertSent || CONFIG.forceAlert) {
-          if (options.sendAlerts !== false) {
-            console.log(`[ALERT] 🚨 Live tickets detected for "${movieEntry.title}"! Sending Discord alert...`);
-            const sent = await sendTicketsLiveAlert(res);
-            if (sent) {
-              movieEntry.alertSent = true;
-              movieEntry.lastAlertSentTime = nowIso;
+      const movieEntry = state.movies.find(item => item.id === m.id || item.title.toLowerCase() === m.title.toLowerCase());
+      if (movieEntry) {
+        movieEntry.lastCheckTime = nowIso;
+        movieEntry.detectedTitle = res.movieTitle;
+        movieEntry.bookingUrl = res.bookingUrl;
+        movieEntry.region = regionSlug;
+
+        if (res.isLive) {
+          movieEntry.lastStatus = 'LIVE';
+          if (!movieEntry.alertSent || CONFIG.forceAlert) {
+            if (options.sendAlerts !== false) {
+              console.log(`[ALERT] 🚨 Live tickets detected for "${movieEntry.title}" in ${regionSlug.toUpperCase()}! Sending Discord alert...`);
+              const sent = await sendTicketsLiveAlert(res);
+              if (sent) {
+                movieEntry.alertSent = true;
+                movieEntry.lastAlertSentTime = nowIso;
+              }
             }
+          } else {
+            console.log(`[ALERT] "${movieEntry.title}" is LIVE, but alert was already sent previously.`);
           }
+        } else if (res.isFound) {
+          movieEntry.lastStatus = 'LISTED_COMING_SOON';
         } else {
-          console.log(`[ALERT] "${movieEntry.title}" is LIVE, but alert was already sent previously.`);
+          movieEntry.lastStatus = 'NOT_YET_LISTED';
         }
-      } else if (res.isFound) {
-        movieEntry.lastStatus = 'LISTED_COMING_SOON';
-      } else {
-        movieEntry.lastStatus = 'NOT_YET_LISTED';
       }
     }
   }
 
-  // Mirror first movie to top-level for legacy consumers
+  // Mirror primary movie for backward compatibility
   if (state.movies[0]) {
     state.alertSent = state.movies[0].alertSent;
     state.lastStatus = state.movies[0].lastStatus;
@@ -736,18 +806,22 @@ async function sendDiscordWebhook(payload) {
 }
 
 /**
- * Dispatch rich ticket alert embed for a specific movie
+ * Dispatch rich ticket alert embed for a specific movie in a specific region
  */
 async function sendTicketsLiveAlert(details) {
   const title = details.movieTitle || details.movie?.title || 'Tracked Movie';
+  const regionSlug = details.region || details.movie?.region || CONFIG.region || 'karwar';
+  const place = POPULAR_PLACES.find(p => p.slug === regionSlug);
+  const regionName = place ? place.name : `${regionSlug.toUpperCase()}, India`;
+
   const mentionText = CONFIG.discordMention && CONFIG.discordMention.toLowerCase() !== 'none'
     ? `${CONFIG.discordMention} `
     : '';
 
   const embed = {
     title: `🚨 TICKETS ARE LIVE: ${title}!`,
-    description: `Bookings have opened or showtimes have been listed on **BookMyShow Karwar** for **${title}**!\n\nGrab your seats before shows fill up!`,
-    url: details.bookingUrl || URLS.regionHome,
+    description: `Bookings have opened or showtimes have been listed on **BookMyShow ${regionName}** for **${title}**!\n\nGrab your seats before shows fill up!`,
+    url: details.bookingUrl || getRegionUrls(regionSlug).regionHome,
     color: 16270436, // BMS Red (#F84464)
     fields: [
       {
@@ -756,15 +830,15 @@ async function sendTicketsLiveAlert(details) {
         inline: true,
       },
       {
-        name: '📍 Region / City',
-        value: `**Karwar, Karnataka**`,
+        name: '📍 Region / Place',
+        value: `**${regionName}** (\`${regionSlug}\`)`,
         inline: true,
       },
       {
         name: '🏛️ Cinema(s)',
         value: details.theaters && details.theaters.length > 0
           ? details.theaters.join('\n')
-          : DEFAULT_KARWAR_CINEMA,
+          : getDefaultCinemaForRegion(regionSlug),
         inline: false,
       },
       {
@@ -779,7 +853,7 @@ async function sendTicketsLiveAlert(details) {
       },
       {
         name: '🔗 Direct Booking Link',
-        value: `[👉 Click here to Book on BookMyShow Karwar](${details.bookingUrl || URLS.regionHome})`,
+        value: `[👉 Click here to Book on BookMyShow ${regionSlug.toUpperCase()}](${details.bookingUrl || getRegionUrls(regionSlug).regionHome})`,
         inline: false,
       },
     ],
@@ -787,14 +861,14 @@ async function sendTicketsLiveAlert(details) {
       url: 'https://in.bmscdn.com/webin/common/icons/bms.png',
     },
     footer: {
-      text: 'BookMyShow Karwar Tracker • Instant Multi-Movie Alert',
+      text: `BookMyShow ${regionSlug.toUpperCase()} Tracker • Instant Push Alert`,
       icon_url: 'https://assets-in.bmscdn.com/webin/common/favicon.ico',
     },
     timestamp: new Date().toISOString(),
   };
 
   const payload = {
-    content: `${mentionText}🚨 **TICKETS ARE LIVE IN KARWAR for ${title}!**`,
+    content: `${mentionText}🚨 **TICKETS ARE LIVE IN ${regionSlug.toUpperCase()} for ${title}!**`,
     embeds: [embed],
   };
 
@@ -804,21 +878,25 @@ async function sendTicketsLiveAlert(details) {
 /**
  * Dispatch test alert to verify Discord webhook connectivity
  */
-async function sendTestAlert(movieTitle = 'Ramayana') {
+async function sendTestAlert(movieTitle = 'Ramayana', regionSlug = 'karwar') {
   console.log(`[TEST] Dispatching verification alert to Discord webhook...`);
+  const r = (regionSlug || CONFIG.region || 'karwar').toLowerCase();
+  const place = POPULAR_PLACES.find(p => p.slug === r);
+  const regionName = place ? place.name : `${r.toUpperCase()}, India`;
+
   const mentionText = CONFIG.discordMention && CONFIG.discordMention.toLowerCase() !== 'none'
     ? `${CONFIG.discordMention} `
     : '';
 
   const embed = {
-    title: `🧪 Test Alert: BookMyShow Karwar Multi-Tracker Connected!`,
-    description: `Your Discord Webhook and multi-movie tracking pipeline is **fully operational**! When tickets for **${movieTitle}** (or any added movie) open in Karwar, you will receive an instant notification here.`,
-    url: URLS.regionHome,
+    title: `🧪 Test Alert: BookMyShow Tracker Connected!`,
+    description: `Your Discord Webhook and multi-region tracking pipeline is **fully operational**! When tickets for **${movieTitle}** (or any added movie) open in **${regionName}**, you will receive an instant notification here.`,
+    url: getRegionUrls(r).regionHome,
     color: 5763719, // Emerald Green
     fields: [
       {
-        name: '📍 Target Region',
-        value: `**Karwar** (\`${CONFIG.region}\`)`,
+        name: '📍 Monitored Place',
+        value: `**${regionName}** (\`${r}\`)`,
         inline: true,
       },
       {
@@ -827,8 +905,8 @@ async function sendTestAlert(movieTitle = 'Ramayana') {
         inline: true,
       },
       {
-        name: '🏛️ Monitored Theater',
-        value: DEFAULT_KARWAR_CINEMA,
+        name: '🏛️ Monitored Theaters',
+        value: getDefaultCinemaForRegion(r),
         inline: true,
       },
       {
@@ -838,18 +916,18 @@ async function sendTestAlert(movieTitle = 'Ramayana') {
       },
       {
         name: '🔗 Monitored URL',
-        value: `[BookMyShow Karwar Movies Page](${URLS.regionHome})`,
+        value: `[BookMyShow ${r.toUpperCase()} Page](${getRegionUrls(r).regionHome})`,
         inline: false,
       },
     ],
     footer: {
-      text: 'BookMyShow Karwar Multi-Tracker • Test Mode Successful',
+      text: 'BookMyShow Multi-Region Tracker • Test Mode Successful',
     },
     timestamp: new Date().toISOString(),
   };
 
   const payload = {
-    content: `${mentionText}✅ **BookMyShow Karwar Multi-Tracker Test Notification**`,
+    content: `${mentionText}✅ **BookMyShow ${r.toUpperCase()} Tracker Test Notification**`,
     embeds: [embed],
   };
 
@@ -867,9 +945,12 @@ async function sendTestAlert(movieTitle = 'Ramayana') {
 // ==========================================
 
 async function main() {
+  const state = loadState();
+  const activeRegion = state.settings?.region || CONFIG.region || 'karwar';
+
   console.log(`=======================================================`);
-  console.log(`🎬 BookMyShow Karwar Multi-Movie Ticket Tracker`);
-  console.log(`📍 Region: ${CONFIG.region.toUpperCase()}`);
+  console.log(`🎬 BookMyShow Multi-Region Ticket Tracker`);
+  console.log(`📍 Active Place: ${activeRegion.toUpperCase()}`);
   console.log(`⏰ Time: ${new Date().toISOString()}`);
   console.log(`=======================================================`);
 
@@ -879,16 +960,15 @@ async function main() {
       console.error(`[ERROR] DISCORD_WEBHOOK_URL is not defined in environment variables!`);
       process.exit(1);
     }
-    const success = await sendTestAlert();
+    const success = await sendTestAlert('Ramayana', activeRegion);
     process.exit(success ? 0 : 1);
   }
 
-  // Check all tracked movies
   try {
-    const { results } = await checkAllMovies(null, { sendAlerts: true });
+    const { results } = await checkAllMovies(null, { sendAlerts: true, region: activeRegion });
     console.log(`\n================== SUMMARY ==================`);
     for (const r of results) {
-      console.log(`- ${r.movie.title}: Found=${r.isFound} | Live=${r.isLive} | Status=${r.strategyUsed}`);
+      console.log(`- [${r.region.toUpperCase()}] ${r.movie.title}: Found=${r.isFound} | Live=${r.isLive} | Strategy=${r.strategyUsed}`);
     }
     console.log(`=============================================\n`);
     console.log(`[DONE] Tracker cycle finished cleanly.`);
@@ -908,10 +988,13 @@ module.exports = {
   saveState,
   addMovieToState,
   removeMovieFromState,
+  updateSettingsInState,
   getMovieMatcher,
+  getRegionUrls,
   isTitleMatch,
   CONFIG,
   URLS,
+  POPULAR_PLACES,
 };
 
 // Execute if run directly from CLI / GitHub Actions

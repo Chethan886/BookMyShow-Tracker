@@ -25,7 +25,7 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json().catch(() => ({}));
-    const { title, keywords } = body;
+    const { title, keywords, region } = body;
 
     if (!title || !title.trim()) {
       return NextResponse.json(
@@ -35,11 +35,11 @@ export async function POST(request) {
     }
 
     const { addMovieToState } = require('../../../tracker');
-    const { state, movie } = addMovieToState({ title: title.trim(), keywords });
+    const { state, movie } = addMovieToState({ title: title.trim(), keywords, region });
 
     return NextResponse.json({
       success: true,
-      message: `"${movie.title}" added to BookMyShow Karwar tracker!`,
+      message: `"${movie.title}" added to BookMyShow ${movie.region.toUpperCase()} tracker!`,
       movie,
       movies: state.movies,
     });
@@ -85,3 +85,4 @@ export async function DELETE(request) {
     );
   }
 }
+

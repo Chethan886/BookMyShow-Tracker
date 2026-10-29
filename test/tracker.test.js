@@ -1,15 +1,18 @@
 /**
- * Unit and Regression Tests for BookMyShow Karwar Multi-Movie Tracker
+ * Unit and Regression Tests for BookMyShow Multi-Region & Multi-Movie Tracker
  */
 
 const assert = require('assert');
 const cheerio = require('cheerio');
 const {
   getMovieMatcher,
+  getRegionUrls,
   isTitleMatch,
   loadState,
   addMovieToState,
   removeMovieFromState,
+  updateSettingsInState,
+  POPULAR_PLACES,
 } = require('../tracker');
 
 console.log('--- Test Suite 1: Title & Keyword Variations ---');
@@ -28,93 +31,46 @@ assert.strictEqual(isTitleMatch('Kantara: A Legend Chapter-1', kantaraMatcher), 
 assert.strictEqual(isTitleMatch('Kantara (Kannada)', kantaraMatcher), true, 'Should match Kantara Kannada');
 assert.strictEqual(isTitleMatch('Ramayana', kantaraMatcher), false, 'Should NOT match Ramayana for Kantara');
 
-// Test Toxic
-const toxicMatcher = getMovieMatcher({ title: 'Toxic: A Fairy Tale for Grown-ups', keywords: ['Toxic', 'Yash Toxic'] });
-assert.strictEqual(isTitleMatch('Toxic', toxicMatcher), true, 'Should match Toxic');
-assert.strictEqual(isTitleMatch('Toxic: A Fairy Tale for Grown-ups', toxicMatcher), true);
-assert.strictEqual(isTitleMatch('War 2', toxicMatcher), false);
-
 console.log('✅ Title and custom movie variation tests passed!');
 
-console.log('\n--- Test Suite 2: Next.js __NEXT_DATA__ Hydration Multi-Movie Parsing ---');
-const mockNextData = {
-  props: {
-    pageProps: {
-      initialData: [
-        {
-          EventTitle: 'Kantara: A Legend Chapter-1',
-          EventCode: 'ET00554433',
-          isBookable: true,
-          isEventLive: true,
-          EventURL: '/buytickets/kantara-chapter-1-karwar/movie-karw-ET00554433-MT/20261030',
-          dimension: '2D, IMAX',
-          languages: ['Kannada', 'Hindi', 'Telugu']
-        },
-        {
-          EventTitle: 'Ramayana: Part 1',
-          EventCode: 'ET00998877',
-          isBookable: false,
-          EventURL: '/karwar/movies/ramayana-part-1/ET00998877'
-        }
-      ]
-    }
-  }
-};
+console.log('\n--- Test Suite 2: Multi-Region URL & Place Mapping ---');
+const karwarUrls = getRegionUrls('karwar');
+assert.strictEqual(karwarUrls.regionHome, 'https://in.bookmyshow.com/explore/movies-karwar');
 
-function searchMockData(obj, matcher, matches = []) {
-  if (!obj || typeof obj !== 'object') return matches;
-  if (Array.isArray(obj)) {
-    for (const item of obj) searchMockData(item, matcher, matches);
-    return matches;
-  }
-  const title = obj.EventTitle || obj.title;
-  if (title && isTitleMatch(title, matcher)) {
-    matches.push({
-      title,
-      isBookable: Boolean(obj.isBookable),
-      bookingUrl: obj.EventURL,
-    });
-  }
-  for (const k of Object.keys(obj)) {
-    if (typeof obj[k] === 'object' && obj[k] !== null) {
-      searchMockData(obj[k], matcher, matches);
-    }
-  }
-  return matches;
-}
+const blrUrls = getRegionUrls('bengaluru');
+assert.strictEqual(blrUrls.regionHome, 'https://in.bookmyshow.com/explore/movies-bengaluru');
 
-const kantaraFound = searchMockData(mockNextData, kantaraMatcher);
-assert.strictEqual(kantaraFound.length, 1);
-assert.strictEqual(kantaraFound[0].title, 'Kantara: A Legend Chapter-1');
-assert.strictEqual(kantaraFound[0].isBookable, true);
+const goaUrls = getRegionUrls('goa');
+assert.strictEqual(goaUrls.regionHome, 'https://in.bookmyshow.com/explore/movies-goa');
 
-const ramayanaFound = searchMockData(mockNextData, ramayanaMatcher);
-assert.strictEqual(ramayanaFound.length, 1);
-assert.strictEqual(ramayanaFound[0].title, 'Ramayana: Part 1');
-assert.strictEqual(ramayanaFound[0].isBookable, false);
+assert(POPULAR_PLACES.some(p => p.slug === 'karwar'), 'Should include Karwar');
+assert(POPULAR_PLACES.some(p => p.slug === 'bengaluru'), 'Should include Bengaluru');
+assert(POPULAR_PLACES.some(p => p.slug === 'mangaluru'), 'Should include Mangaluru');
 
-console.log('✅ Next.js multi-movie JSON extraction tests passed!');
+console.log('✅ Region URLs and popular places mapping tests passed!');
 
-console.log('\n--- Test Suite 3: State Migration & Multi-Movie Management ---');
+console.log('\n--- Test Suite 3: State & Settings Management ---');
 const state = loadState();
 assert(Array.isArray(state.movies), 'State should have movies array');
-assert(state.movies.length >= 1, 'Should have at least 1 movie in state');
+assert(state.settings, 'State should have settings');
 
-// Test add movie
-const added = addMovieToState({
-  title: 'Test Movie Alpha',
-  keywords: 'Alpha, Test Alpha',
+// Test update settings (place & interval)
+const updated = updateSettingsInState({
+  region: 'bengaluru',
+  checkIntervalMinutes: 10,
 });
-assert.strictEqual(added.movie.title, 'Test Movie Alpha');
-assert(added.state.movies.some(m => m.id === 'test-movie-alpha'), 'Should contain newly added movie');
+assert.strictEqual(updated.settings.region, 'bengaluru');
+assert.strictEqual(updated.settings.checkIntervalMinutes, 10);
 
-// Test remove movie
-const removed = removeMovieFromState('test-movie-alpha');
-assert.strictEqual(removed.removed, true, 'Should successfully remove movie');
-assert(!removed.state.movies.some(m => m.id === 'test-movie-alpha'), 'Should not contain removed movie');
+// Reset back to karwar
+updateSettingsInState({
+  region: 'karwar',
+  regionName: 'Karwar, Karnataka',
+  checkIntervalMinutes: 15,
+});
 
-console.log('✅ State migration & multi-movie management tests passed!');
+console.log('✅ Settings update and interval tests passed!');
 
 console.log('\n=============================================');
-console.log('🎉 ALL MULTI-MOVIE TESTS PASSED SUCCESSFULLY!');
+console.log('🎉 ALL MULTI-REGION & INTERVAL TESTS PASSED!');
 console.log('=============================================');

@@ -1,9 +1,9 @@
 name: BookMyShow Karwar Ticket Tracker
 
 on:
-  # Scheduled cron execution (runs every 20 minutes)
+  # Scheduled cron execution (runs every 15 minutes)
   schedule:
-    - cron: '*/20 * * * *'
+    - cron: '*/15 * * * *'
 
   # Manual trigger with options for testing and forcing alerts
   workflow_dispatch:

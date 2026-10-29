@@ -1,9 +1,10 @@
 /**
  * BookMyShow Movie Ticket Availability Tracker for Karwar
  * 
- * Automates detection of movie release and booking availability (e.g. "Ramayana")
+ * Automates detection of movie release and booking availability
+ * for multiple tracked movies (e.g. "Ramayana", "Kantara", etc.)
  * in BookMyShow Karwar, dispatching instant rich Discord webhook alerts.
- * Designed for serverless scheduled runs on GitHub Actions.
+ * Designed for serverless scheduled runs on GitHub Actions and Next.js / Vercel.
  */
 
 require('dotenv').config();
@@ -20,13 +21,12 @@ const CONFIG = {
   // Target Region (BookMyShow slug)
   region: (process.env.BMS_REGION || 'karwar').toLowerCase().trim(),
 
-  // Target Movie Search Keywords & Regex
-  // Matches "Ramayana", "Ramayana: Part 1", "Ramayana - Part 1", "Ramayan Part 1", etc.
-  targetKeywords: (process.env.TARGET_KEYWORDS || 'Ramayana,Ramayana: Part 1,Ramayana - Part 1')
+  // Default fallback movie keywords if state is empty
+  defaultKeywords: (process.env.TARGET_KEYWORDS || 'Ramayana,Ramayana: Part 1,Ramayana - Part 1')
     .split(',')
     .map(kw => kw.trim().toLowerCase())
     .filter(Boolean),
-  targetRegex: /\b(ramayana(:?\s*part\s*1|-?\s*part\s*1)?|ramayan)\b/i,
+  defaultRegex: /\b(ramayana(:?\s*part\s*1|-?\s*part\s*1)?|ramayan)\b/i,
 
   // Discord Webhook configuration
   discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL || '',
@@ -55,6 +55,20 @@ const URLS = {
 
 // Known Karwar Cinema (for fallback display if not dynamically parsed)
 const DEFAULT_KARWAR_CINEMA = 'Miraj Cinemas: Geetanjali, Karwar';
+
+// Default baseline movie
+const DEFAULT_RAMAYANA_MOVIE = {
+  id: 'ramayana',
+  title: 'Ramayana',
+  keywords: ['Ramayana', 'Ramayana: Part 1', 'Ramayana - Part 1', 'Ramayan'],
+  alertSent: false,
+  lastCheckTime: null,
+  lastStatus: 'NOT_YET_LISTED',
+  detectedTitle: null,
+  bookingUrl: URLS.regionHome,
+  theaters: [DEFAULT_KARWAR_CINEMA],
+  lastAlertSentTime: null,
+};
 
 // ==========================================
 // HTTP CLIENT SETUP (Browser Emulation)
@@ -120,14 +134,32 @@ async function fetchWithRetry(url, options = {}, retries = CONFIG.maxRetries) {
 // STATE MANAGEMENT (state.json)
 // ==========================================
 
+function slugify(text) {
+  return String(text || '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^\w-]+/g, '')
+    .replace(/--+/g, '-');
+}
+
+/**
+ * Loads persistent state with automatic migration from single-movie to multi-movie schema
+ */
 function loadState() {
   const defaultState = {
+    movies: [ { ...DEFAULT_RAMAYANA_MOVIE } ],
+    settings: {
+      region: CONFIG.region,
+      discordMention: CONFIG.discordMention,
+    },
+    // Top-level legacy aliases for backward compatibility
     alertSent: false,
     lastCheckTime: null,
     lastStatus: 'NOT_RUN_YET',
     detectedTitle: null,
     bookingUrl: null,
-    theaters: [],
+    theaters: [DEFAULT_KARWAR_CINEMA],
     lastAlertSentTime: null,
   };
 
@@ -138,7 +170,40 @@ function loadState() {
 
   try {
     const raw = fs.readFileSync(CONFIG.stateFile, 'utf8');
-    return { ...defaultState, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+
+    // Migration logic: if old state format (lacking movies array)
+    if (!parsed.movies || !Array.isArray(parsed.movies)) {
+      const migrated = {
+        ...DEFAULT_RAMAYANA_MOVIE,
+        alertSent: Boolean(parsed.alertSent),
+        lastCheckTime: parsed.lastCheckTime || null,
+        lastStatus: parsed.lastStatus || 'NOT_YET_LISTED',
+        detectedTitle: parsed.detectedTitle || null,
+        bookingUrl: parsed.bookingUrl || URLS.regionHome,
+        theaters: parsed.theaters && parsed.theaters.length ? parsed.theaters : [DEFAULT_KARWAR_CINEMA],
+        lastAlertSentTime: parsed.lastAlertSentTime || null,
+      };
+      parsed.movies = [migrated];
+    }
+
+    if (!parsed.movies.length) {
+      parsed.movies = [ { ...DEFAULT_RAMAYANA_MOVIE } ];
+    }
+
+    // Mirror first movie to top-level for legacy consumers
+    const primary = parsed.movies[0];
+    return {
+      ...defaultState,
+      ...parsed,
+      alertSent: primary.alertSent,
+      lastCheckTime: primary.lastCheckTime,
+      lastStatus: primary.lastStatus,
+      detectedTitle: primary.detectedTitle,
+      bookingUrl: primary.bookingUrl,
+      theaters: primary.theaters,
+      lastAlertSentTime: primary.lastAlertSentTime,
+    };
   } catch (error) {
     console.warn(`[STATE] Failed to read state file, using defaults:`, error.message);
     return defaultState;
@@ -148,47 +213,153 @@ function loadState() {
 function saveState(state) {
   try {
     fs.writeFileSync(CONFIG.stateFile, JSON.stringify(state, null, 2), 'utf8');
-    console.log(`[STATE] Saved state to ${path.basename(CONFIG.stateFile)}`);
+    console.log(`[STATE] Saved state to ${path.basename(CONFIG.stateFile)} (${state.movies ? state.movies.length : 1} movies)`);
   } catch (error) {
     console.error(`[STATE] Failed to write state file:`, error.message);
   }
 }
 
+/**
+ * Add or update a movie in state.json
+ */
+function addMovieToState(movieInput) {
+  const state = loadState();
+  const title = (movieInput.title || '').trim();
+  if (!title) {
+    throw new Error('Movie title cannot be empty.');
+  }
+
+  const id = slugify(movieInput.id || title);
+
+  let keywords = [];
+  if (Array.isArray(movieInput.keywords)) {
+    keywords = movieInput.keywords.map(k => String(k).trim()).filter(Boolean);
+  } else if (typeof movieInput.keywords === 'string') {
+    keywords = movieInput.keywords.split(',').map(k => k.trim()).filter(Boolean);
+  }
+  if (!keywords.some(k => k.toLowerCase() === title.toLowerCase())) {
+    keywords.unshift(title);
+  }
+
+  const existingIdx = state.movies.findIndex(m => m.id === id || m.title.toLowerCase() === title.toLowerCase());
+
+  const movieEntry = {
+    id,
+    title,
+    keywords,
+    alertSent: false,
+    lastCheckTime: null,
+    lastStatus: 'NOT_YET_LISTED',
+    detectedTitle: null,
+    bookingUrl: URLS.regionHome,
+    theaters: [DEFAULT_KARWAR_CINEMA],
+    lastAlertSentTime: null,
+    addedAt: new Date().toISOString(),
+  };
+
+  if (existingIdx >= 0) {
+    state.movies[existingIdx] = { ...state.movies[existingIdx], ...movieEntry };
+  } else {
+    state.movies.push(movieEntry);
+  }
+
+  saveState(state);
+  return { state, movie: movieEntry };
+}
+
+/**
+ * Remove a movie from state.json
+ */
+function removeMovieFromState(movieId) {
+  const state = loadState();
+  const idToRemove = slugify(movieId);
+  const beforeCount = state.movies.length;
+  state.movies = state.movies.filter(m => m.id !== idToRemove);
+
+  // Keep at least 1 movie in state
+  if (state.movies.length === 0) {
+    state.movies = [ { ...DEFAULT_RAMAYANA_MOVIE } ];
+  }
+
+  saveState(state);
+  return { state, removed: beforeCount > state.movies.length };
+}
+
 // ==========================================
-// DETECTION & SCRAPING STRATEGIES
+// MATCHER & DETECTION STRATEGIES
 // ==========================================
 
 /**
- * Check if a given string matches the target movie criteria
+ * Creates regex and keyword sets for any movie object
  */
-function isTitleMatch(text) {
+function getMovieMatcher(movieInput) {
+  if (!movieInput) {
+    return {
+      id: 'ramayana',
+      title: 'Ramayana',
+      keywords: CONFIG.defaultKeywords,
+      regex: CONFIG.defaultRegex,
+    };
+  }
+
+  const title = movieInput.title || 'Ramayana';
+  const id = movieInput.id || slugify(title);
+
+  let keywords = [];
+  if (Array.isArray(movieInput.keywords)) {
+    keywords = movieInput.keywords.map(k => String(k).trim().toLowerCase()).filter(Boolean);
+  } else if (typeof movieInput.keywords === 'string') {
+    keywords = movieInput.keywords.split(',').map(k => k.trim().toLowerCase()).filter(Boolean);
+  }
+
+  if (!keywords.includes(title.toLowerCase())) {
+    keywords.unshift(title.toLowerCase());
+  }
+
+  let regex;
+  if (title.toLowerCase() === 'ramayana') {
+    regex = CONFIG.defaultRegex;
+  } else if (movieInput.regex instanceof RegExp) {
+    regex = movieInput.regex;
+  } else {
+    // Generate clean word-boundary regex escaping special characters
+    const escapedTerms = keywords.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    regex = new RegExp(`\\b(${escapedTerms.join('|')})\\b`, 'i');
+  }
+
+  return { id, title, keywords, regex };
+}
+
+/**
+ * Check if a text matches a specific movie's matcher
+ */
+function isTitleMatch(text, matcher) {
   if (!text || typeof text !== 'string') return false;
   const clean = text.trim();
-  if (CONFIG.targetRegex.test(clean)) return true;
+  const m = matcher || { regex: CONFIG.defaultRegex, keywords: CONFIG.defaultKeywords };
+  if (m.regex && m.regex.test(clean)) return true;
   const lower = clean.toLowerCase();
-  return CONFIG.targetKeywords.some(kw => lower.includes(kw));
+  return m.keywords.some(kw => lower.includes(kw));
 }
 
 /**
  * Recursively search any nested JavaScript object for target movie occurrences
  */
-function searchNextDataForMovie(obj, matches = []) {
+function searchNextDataForMovie(obj, matcher, matches = []) {
   if (!obj || typeof obj !== 'object') return matches;
 
   if (Array.isArray(obj)) {
     for (const item of obj) {
-      searchNextDataForMovie(item, matches);
+      searchNextDataForMovie(item, matcher, matches);
     }
     return matches;
   }
 
-  // Check candidate movie/event object
   const title = obj.EventTitle || obj.eventTitle || obj.title || obj.name || obj.EventName;
   const code = obj.EventCode || obj.eventCode || obj.code;
   const url = obj.EventURL || obj.eventURL || obj.seoUrl || obj.slug || obj.url;
 
-  if (title && isTitleMatch(title)) {
-    // Check if live/bookable indicators exist
+  if (title && isTitleMatch(title, matcher)) {
     const isBookable = Boolean(
       obj.isBookable ||
       obj.isEventLive ||
@@ -214,10 +385,9 @@ function searchNextDataForMovie(obj, matches = []) {
     });
   }
 
-  // Recurse into object properties
   for (const key of Object.keys(obj)) {
     if (typeof obj[key] === 'object' && obj[key] !== null) {
-      searchNextDataForMovie(obj[key], matches);
+      searchNextDataForMovie(obj[key], matcher, matches);
     }
   }
 
@@ -226,19 +396,18 @@ function searchNextDataForMovie(obj, matches = []) {
 
 /**
  * Strategy 1: Parse Next.js Hydration Data (__NEXT_DATA__)
- * BMS uses Next.js; its SSR payload contains structured event catalogs
  */
-function parseNextData(html) {
+function parseNextData(html, matcher) {
   try {
     const $ = cheerio.load(html);
     const scriptTag = $('script#__NEXT_DATA__').html();
     if (!scriptTag) return null;
 
     const nextData = JSON.parse(scriptTag);
-    const matches = searchNextDataForMovie(nextData);
+    const matches = searchNextDataForMovie(nextData, matcher);
 
     if (matches && matches.length > 0) {
-      console.log(`[PARSE:NEXT_DATA] Found ${matches.length} matching candidate(s) in __NEXT_DATA__`);
+      console.log(`[PARSE:NEXT_DATA] Found ${matches.length} candidate(s) for "${matcher.title}" in __NEXT_DATA__`);
       return matches;
     }
   } catch (error) {
@@ -249,29 +418,28 @@ function parseNextData(html) {
 
 /**
  * Strategy 2: Cheerio DOM Parsing
- * Direct DOM inspection for anchor tags, movie cards, and booking triggers
  */
-function parseDomForMovie(html, pageUrl) {
+function parseDomForMovie(html, pageUrl, matcher) {
   const matches = [];
   try {
     const $ = cheerio.load(html);
 
-    // Look for all anchor tags with movie links or titles
+    // Look for all anchor tags
     $('a').each((_, elem) => {
       const text = $(elem).text().trim();
       const href = $(elem).attr('href') || '';
       const ariaLabel = $(elem).attr('aria-label') || '';
 
-      const matchedText = isTitleMatch(text) ? text : (isTitleMatch(ariaLabel) ? ariaLabel : (isTitleMatch(href) ? href : null));
+      const matchedText = isTitleMatch(text, matcher)
+        ? text
+        : (isTitleMatch(ariaLabel, matcher) ? ariaLabel : (isTitleMatch(href, matcher) ? href : null));
 
       if (matchedText) {
-        // Resolve URL
         let fullUrl = href;
         if (href && !href.startsWith('http')) {
           fullUrl = `https://in.bookmyshow.com${href.startsWith('/') ? '' : '/'}${href}`;
         }
 
-        // Check if bookable or if parents/siblings indicate "Book" or "Advance Booking"
         const parentHtml = $(elem).closest('div, section, article').text();
         const hasBookBtn =
           /book\s*tickets?|buy\s*tickets?|advance\s*booking|\/buytickets\//i.test(parentHtml) ||
@@ -286,11 +454,11 @@ function parseDomForMovie(html, pageUrl) {
       }
     });
 
-    // Also scan for any movie card text containing the target title
+    // Also scan for movie cards
     if (matches.length === 0) {
       $('div, h2, h3, h4, span, p').each((_, elem) => {
         const text = $(elem).text().trim();
-        if (text.length > 2 && text.length < 80 && isTitleMatch(text)) {
+        if (text.length > 2 && text.length < 90 && isTitleMatch(text, matcher)) {
           const parent = $(elem).closest('div');
           const hasBookBtn = /book\s*tickets?|buy\s*tickets?|advance\s*booking/i.test(parent.text());
           const link = parent.find('a[href]').attr('href');
@@ -316,125 +484,230 @@ function parseDomForMovie(html, pageUrl) {
 }
 
 /**
- * Strategy 3: Check BMS Legacy QuickBook API
+ * Strategy 3: Check BMS QuickBook catalog API
  */
-async function checkQuickBookApi() {
+function parseQuickBookData(data, matcher) {
+  if (!data || typeof data !== 'object') return null;
   try {
-    console.log(`[STRATEGY:API] Checking BMS QuickBook catalog API...`);
-    const res = await httpClient.get(URLS.quickBookApi, {
-      headers: {
-        'Accept': 'application/json, text/plain, */*',
-        'Referer': URLS.regionHome,
-      },
-    });
-
-    if (res.data && typeof res.data === 'object') {
-      const dataStr = JSON.stringify(res.data);
-      if (CONFIG.targetRegex.test(dataStr)) {
-        console.log(`[STRATEGY:API] Target movie matched in QuickBook data!`);
-        // Extract events if present
-        const events = res.data.arrEvents || res.data.BookMyShow?.arrEvents || [];
-        for (const ev of events) {
-          const evName = ev.EventTitle || ev.EventName || '';
-          if (isTitleMatch(evName)) {
-            return {
-              title: evName,
-              bookingUrl: URLS.regionHome,
-              isBookable: true,
-              source: 'QUICKBOOK_API',
-            };
-          }
+    const dataStr = JSON.stringify(data);
+    if (matcher.regex.test(dataStr) || matcher.keywords.some(k => dataStr.toLowerCase().includes(k))) {
+      const events = data.arrEvents || data.BookMyShow?.arrEvents || [];
+      for (const ev of events) {
+        const evName = ev.EventTitle || ev.EventName || '';
+        if (isTitleMatch(evName, matcher)) {
+          return {
+            title: evName,
+            bookingUrl: URLS.regionHome,
+            isBookable: true,
+            source: 'QUICKBOOK_API',
+          };
         }
-        return {
-          title: 'Ramayana',
-          bookingUrl: URLS.regionHome,
-          isBookable: true,
-          source: 'QUICKBOOK_API',
-        };
       }
+      return {
+        title: matcher.title,
+        bookingUrl: URLS.regionHome,
+        isBookable: true,
+        source: 'QUICKBOOK_API',
+      };
     }
   } catch (error) {
-    console.log(`[STRATEGY:API] QuickBook API returned non-fatal error:`, error.message);
+    console.warn(`[PARSE:QUICKBOOK] Error parsing quickbook data:`, error.message);
   }
   return null;
 }
 
-/**
- * Master check function that runs all detection layers
- */
-async function checkMovieAvailability() {
-  const result = {
-    isFound: false,
-    isLive: false,
-    movieTitle: 'Ramayana',
-    bookingUrl: URLS.regionHome,
-    theaters: [DEFAULT_KARWAR_CINEMA],
-    strategyUsed: 'NONE',
-  };
+// ==========================================
+// BATCH FETCHING & DETECTION
+// ==========================================
 
-  const pagesToCheck = [
+let inMemoryPageCache = {
+  timestamp: 0,
+  data: null,
+};
+
+/**
+ * Fetches all Karwar pages once and caches in-memory for 25 seconds
+ * Ensures checking 10 movies takes the exact same time and requests as 1 movie
+ */
+async function fetchKarwarPages(forceFresh = false) {
+  const now = Date.now();
+  if (!forceFresh && inMemoryPageCache.data && now - inMemoryPageCache.timestamp < 25000) {
+    return inMemoryPageCache.data;
+  }
+
+  const pages = [
     { url: URLS.regionHome, name: 'Karwar Explore Movies' },
     { url: URLS.regionMovies, name: 'Karwar Movies Landing' },
     { url: URLS.regionUpcoming, name: 'Karwar Upcoming Movies' },
   ];
 
-  for (const page of pagesToCheck) {
+  const fetchedPages = [];
+  for (const page of pages) {
     try {
-      console.log(`\n--- Inspecting: ${page.name} (${page.url}) ---`);
-      const response = await fetchWithRetry(page.url);
-      const html = response.data;
-
-      // Layer 1: Next.js JSON Extraction
-      const nextDataMatches = parseNextData(html);
-      if (nextDataMatches && nextDataMatches.length > 0) {
-        result.isFound = true;
-        result.strategyUsed = 'NEXT_DATA';
-
-        // Select the most live match or first match
-        const liveMatch = nextDataMatches.find(m => m.isBookable) || nextDataMatches[0];
-        result.movieTitle = liveMatch.title || result.movieTitle;
-        if (liveMatch.bookingUrl) result.bookingUrl = liveMatch.bookingUrl;
-        result.isLive = Boolean(liveMatch.isBookable);
-
-        console.log(`[DETECTION] Match found in ${page.name}: "${result.movieTitle}" | Live: ${result.isLive}`);
-        if (result.isLive) {
-          return result; // Early return if confirmed live
-        }
-      }
-
-      // Layer 2: Cheerio DOM Parsing
-      const domMatches = parseDomForMovie(html, page.url);
-      if (domMatches && domMatches.length > 0) {
-        result.isFound = true;
-        result.strategyUsed = result.strategyUsed === 'NEXT_DATA' ? 'NEXT_DATA+DOM' : 'DOM';
-
-        const liveMatch = domMatches.find(m => m.isBookable) || domMatches[0];
-        result.movieTitle = liveMatch.title || result.movieTitle;
-        if (liveMatch.bookingUrl) result.bookingUrl = liveMatch.bookingUrl;
-        if (liveMatch.isBookable) result.isLive = true;
-
-        console.log(`[DETECTION] DOM Match in ${page.name}: "${result.movieTitle}" | Live: ${result.isLive}`);
-        if (result.isLive) {
-          return result; // Early return if confirmed live
-        }
-      }
-    } catch (pageError) {
-      console.warn(`[CHECK] Could not inspect ${page.name}:`, pageError.message);
-      // Soft failure: continue checking subsequent pages
+      console.log(`\n--- Fetching: ${page.name} (${page.url}) ---`);
+      const res = await fetchWithRetry(page.url);
+      fetchedPages.push({ ...page, html: res.data });
+    } catch (err) {
+      console.warn(`[FETCH] Could not fetch ${page.name}:`, err.message);
+      fetchedPages.push({ ...page, html: null, error: err.message });
     }
   }
 
-  // Layer 3: Fallback QuickBook API
-  const apiMatch = await checkQuickBookApi();
-  if (apiMatch) {
-    result.isFound = true;
-    result.isLive = true;
-    result.movieTitle = apiMatch.title || result.movieTitle;
-    result.bookingUrl = apiMatch.bookingUrl || result.bookingUrl;
-    result.strategyUsed = 'QUICKBOOK_API';
+  let quickBookData = null;
+  try {
+    console.log(`[HTTP] Checking BMS QuickBook API...`);
+    const qbRes = await httpClient.get(URLS.quickBookApi, {
+      headers: {
+        'Accept': 'application/json, text/plain, */*',
+        'Referer': URLS.regionHome,
+      },
+    });
+    quickBookData = qbRes.data;
+  } catch (err) {
+    console.log(`[HTTP] QuickBook API returned non-fatal error:`, err.message);
+  }
+
+  inMemoryPageCache = {
+    timestamp: now,
+    data: { pages: fetchedPages, quickBookData },
+  };
+
+  return inMemoryPageCache.data;
+}
+
+/**
+ * Check availability for a single movie using cached or fresh pages
+ */
+async function checkMovieAvailability(movieInput, preloadedData = null) {
+  const matcher = getMovieMatcher(movieInput);
+
+  const result = {
+    movie: {
+      id: matcher.id,
+      title: matcher.title,
+      keywords: matcher.keywords,
+    },
+    isFound: false,
+    isLive: false,
+    movieTitle: matcher.title,
+    bookingUrl: URLS.regionHome,
+    theaters: [DEFAULT_KARWAR_CINEMA],
+    strategyUsed: 'NONE',
+  };
+
+  const data = preloadedData || (await fetchKarwarPages());
+
+  for (const page of data.pages) {
+    if (!page.html) continue;
+
+    // Layer 1: Next.js JSON Extraction
+    const nextMatches = parseNextData(page.html, matcher);
+    if (nextMatches && nextMatches.length > 0) {
+      result.isFound = true;
+      result.strategyUsed = 'NEXT_DATA';
+
+      const liveMatch = nextMatches.find(m => m.isBookable) || nextMatches[0];
+      result.movieTitle = liveMatch.title || result.movieTitle;
+      if (liveMatch.bookingUrl) result.bookingUrl = liveMatch.bookingUrl;
+      result.isLive = Boolean(liveMatch.isBookable);
+
+      console.log(`[DETECTION] Match for "${matcher.title}" in ${page.name}: "${result.movieTitle}" | Live: ${result.isLive}`);
+      if (result.isLive) return result;
+    }
+
+    // Layer 2: Cheerio DOM Parsing
+    const domMatches = parseDomForMovie(page.html, page.url, matcher);
+    if (domMatches && domMatches.length > 0) {
+      result.isFound = true;
+      result.strategyUsed = result.strategyUsed === 'NEXT_DATA' ? 'NEXT_DATA+DOM' : 'DOM';
+
+      const liveMatch = domMatches.find(m => m.isBookable) || domMatches[0];
+      result.movieTitle = liveMatch.title || result.movieTitle;
+      if (liveMatch.bookingUrl) result.bookingUrl = liveMatch.bookingUrl;
+      if (liveMatch.isBookable) result.isLive = true;
+
+      console.log(`[DETECTION] DOM Match for "${matcher.title}" in ${page.name}: "${result.movieTitle}" | Live: ${result.isLive}`);
+      if (result.isLive) return result;
+    }
+  }
+
+  // Layer 3: QuickBook API Fallback
+  if (data.quickBookData) {
+    const apiMatch = parseQuickBookData(data.quickBookData, matcher);
+    if (apiMatch) {
+      result.isFound = true;
+      result.isLive = true;
+      result.movieTitle = apiMatch.title || result.movieTitle;
+      result.bookingUrl = apiMatch.bookingUrl || result.bookingUrl;
+      result.strategyUsed = 'QUICKBOOK_API';
+    }
   }
 
   return result;
+}
+
+/**
+ * Check all tracked movies in batch
+ */
+async function checkAllMovies(moviesList = null, options = {}) {
+  const state = loadState();
+  const moviesToCheck = moviesList || state.movies || [];
+
+  console.log(`\n=======================================================`);
+  console.log(`🎬 Checking ${moviesToCheck.length} Tracked Movie(s) in BookMyShow Karwar`);
+  console.log(`=======================================================`);
+
+  // Fetch page contents once for all movies
+  const preloaded = await fetchKarwarPages(Boolean(options.forceFresh));
+  const results = [];
+
+  const nowIso = new Date().toISOString();
+
+  for (const m of moviesToCheck) {
+    const res = await checkMovieAvailability(m, preloaded);
+    results.push(res);
+
+    // Find and update movie entry in state
+    const movieEntry = state.movies.find(item => item.id === m.id || item.title.toLowerCase() === m.title.toLowerCase());
+    if (movieEntry) {
+      movieEntry.lastCheckTime = nowIso;
+      movieEntry.detectedTitle = res.movieTitle;
+      movieEntry.bookingUrl = res.bookingUrl;
+
+      if (res.isLive) {
+        movieEntry.lastStatus = 'LIVE';
+        if (!movieEntry.alertSent || CONFIG.forceAlert) {
+          if (options.sendAlerts !== false) {
+            console.log(`[ALERT] 🚨 Live tickets detected for "${movieEntry.title}"! Sending Discord alert...`);
+            const sent = await sendTicketsLiveAlert(res);
+            if (sent) {
+              movieEntry.alertSent = true;
+              movieEntry.lastAlertSentTime = nowIso;
+            }
+          }
+        } else {
+          console.log(`[ALERT] "${movieEntry.title}" is LIVE, but alert was already sent previously.`);
+        }
+      } else if (res.isFound) {
+        movieEntry.lastStatus = 'LISTED_COMING_SOON';
+      } else {
+        movieEntry.lastStatus = 'NOT_YET_LISTED';
+      }
+    }
+  }
+
+  // Mirror first movie to top-level for legacy consumers
+  if (state.movies[0]) {
+    state.alertSent = state.movies[0].alertSent;
+    state.lastStatus = state.movies[0].lastStatus;
+    state.lastCheckTime = state.movies[0].lastCheckTime;
+    state.detectedTitle = state.movies[0].detectedTitle;
+    state.bookingUrl = state.movies[0].bookingUrl;
+  }
+
+  saveState(state);
+
+  return { results, state };
 }
 
 // ==========================================
@@ -463,23 +736,23 @@ async function sendDiscordWebhook(payload) {
 }
 
 /**
- * Dispatch rich ticket alert embed
+ * Dispatch rich ticket alert embed for a specific movie
  */
 async function sendTicketsLiveAlert(details) {
+  const title = details.movieTitle || details.movie?.title || 'Tracked Movie';
   const mentionText = CONFIG.discordMention && CONFIG.discordMention.toLowerCase() !== 'none'
     ? `${CONFIG.discordMention} `
     : '';
 
   const embed = {
-    title: `🚨 TICKETS ARE LIVE: ${details.movieTitle}!`,
-    description: `Bookings have opened or showtimes have been listed on **BookMyShow Karwar** for **${details.movieTitle}**!\n\nGrab your seats before shows fill up!`,
+    title: `🚨 TICKETS ARE LIVE: ${title}!`,
+    description: `Bookings have opened or showtimes have been listed on **BookMyShow Karwar** for **${title}**!\n\nGrab your seats before shows fill up!`,
     url: details.bookingUrl || URLS.regionHome,
-    // BMS Vibrant Coral/Red Hex Color (#F84464 -> 16270436)
-    color: 16270436,
+    color: 16270436, // BMS Red (#F84464)
     fields: [
       {
         name: '🎬 Movie Title',
-        value: `**${details.movieTitle}**`,
+        value: `**${title}**`,
         inline: true,
       },
       {
@@ -514,14 +787,14 @@ async function sendTicketsLiveAlert(details) {
       url: 'https://in.bmscdn.com/webin/common/icons/bms.png',
     },
     footer: {
-      text: 'BookMyShow Karwar Tracker • Instant Serverless Alert',
+      text: 'BookMyShow Karwar Tracker • Instant Multi-Movie Alert',
       icon_url: 'https://assets-in.bmscdn.com/webin/common/favicon.ico',
     },
     timestamp: new Date().toISOString(),
   };
 
   const payload = {
-    content: `${mentionText}🚨 **TICKETS ARE LIVE IN KARWAR for ${details.movieTitle}!**`,
+    content: `${mentionText}🚨 **TICKETS ARE LIVE IN KARWAR for ${title}!**`,
     embeds: [embed],
   };
 
@@ -531,18 +804,17 @@ async function sendTicketsLiveAlert(details) {
 /**
  * Dispatch test alert to verify Discord webhook connectivity
  */
-async function sendTestAlert() {
+async function sendTestAlert(movieTitle = 'Ramayana') {
   console.log(`[TEST] Dispatching verification alert to Discord webhook...`);
   const mentionText = CONFIG.discordMention && CONFIG.discordMention.toLowerCase() !== 'none'
     ? `${CONFIG.discordMention} `
     : '';
 
   const embed = {
-    title: `🧪 Test Alert: BookMyShow Karwar Tracker Connected!`,
-    description: `Your Discord Webhook and GitHub Actions alert pipeline is **fully working**! When tickets for **Ramayana** open in Karwar, you will receive an instant notification here.`,
+    title: `🧪 Test Alert: BookMyShow Karwar Multi-Tracker Connected!`,
+    description: `Your Discord Webhook and multi-movie tracking pipeline is **fully operational**! When tickets for **${movieTitle}** (or any added movie) open in Karwar, you will receive an instant notification here.`,
     url: URLS.regionHome,
-    // Discord Blurple / Emerald Green (0x57F287 -> 5763719)
-    color: 5763719,
+    color: 5763719, // Emerald Green
     fields: [
       {
         name: '📍 Target Region',
@@ -550,8 +822,8 @@ async function sendTestAlert() {
         inline: true,
       },
       {
-        name: '🎯 Target Event',
-        value: `**Ramayana** (including Part 1 variations)`,
+        name: '🎯 Sample Movie',
+        value: `**${movieTitle}**`,
         inline: true,
       },
       {
@@ -571,13 +843,13 @@ async function sendTestAlert() {
       },
     ],
     footer: {
-      text: 'BookMyShow Karwar Tracker • Test Mode Successful',
+      text: 'BookMyShow Karwar Multi-Tracker • Test Mode Successful',
     },
     timestamp: new Date().toISOString(),
   };
 
   const payload = {
-    content: `${mentionText}✅ **BookMyShow Karwar Tracker Test Notification**`,
+    content: `${mentionText}✅ **BookMyShow Karwar Multi-Tracker Test Notification**`,
     embeds: [embed],
   };
 
@@ -591,18 +863,16 @@ async function sendTestAlert() {
 }
 
 // ==========================================
-// MAIN EXECUTION FLOW
+// MAIN CLI EXECUTION
 // ==========================================
 
 async function main() {
   console.log(`=======================================================`);
-  console.log(`🎬 BookMyShow Karwar Ticket Tracker`);
+  console.log(`🎬 BookMyShow Karwar Multi-Movie Ticket Tracker`);
   console.log(`📍 Region: ${CONFIG.region.toUpperCase()}`);
-  console.log(`🎯 Target: Ramayana (Regex: ${CONFIG.targetRegex})`);
   console.log(`⏰ Time: ${new Date().toISOString()}`);
   console.log(`=======================================================`);
 
-  // Handle explicit Test Mode
   if (CONFIG.testMode) {
     console.log(`[MODE] Test Mode Active.`);
     if (!CONFIG.discordWebhookUrl) {
@@ -613,74 +883,33 @@ async function main() {
     process.exit(success ? 0 : 1);
   }
 
-  // Load persistent state
-  const state = loadState();
-  console.log(`[STATE] Previous Status: ${state.lastStatus} | Alert Already Sent: ${state.alertSent}`);
-
-  // Run detection
-  let detectionResult;
+  // Check all tracked movies
   try {
-    detectionResult = await checkMovieAvailability();
+    const { results } = await checkAllMovies(null, { sendAlerts: true });
+    console.log(`\n================== SUMMARY ==================`);
+    for (const r of results) {
+      console.log(`- ${r.movie.title}: Found=${r.isFound} | Live=${r.isLive} | Status=${r.strategyUsed}`);
+    }
+    console.log(`=============================================\n`);
+    console.log(`[DONE] Tracker cycle finished cleanly.`);
   } catch (error) {
-    console.error(`[CHECK] Unexpected error running tracker:`, error.message);
-    // Soft failure so GitHub Action cron doesn't generate noisy red email alerts
-    console.log(`[EXIT] Soft failure recorded. Exiting cleanly for next scheduled cycle.`);
+    console.error(`[MAIN] Soft error during tracker run:`, error.message);
     process.exit(0);
   }
-
-  console.log(`\n================== RESULTS ==================`);
-  console.log(`Movie Detected: ${detectionResult.isFound}`);
-  console.log(`Live/Bookable:  ${detectionResult.isLive}`);
-  console.log(`Title:          ${detectionResult.movieTitle}`);
-  console.log(`Booking URL:    ${detectionResult.bookingUrl}`);
-  console.log(`Strategy:       ${detectionResult.strategyUsed}`);
-  console.log(`=============================================\n`);
-
-  const nowIso = new Date().toISOString();
-  state.lastCheckTime = nowIso;
-  state.detectedTitle = detectionResult.movieTitle;
-  state.bookingUrl = detectionResult.bookingUrl;
-  state.theaters = detectionResult.theaters;
-
-  // Handle detection states
-  if (detectionResult.isLive) {
-    state.lastStatus = 'LIVE';
-
-    if (state.alertSent && !CONFIG.forceAlert) {
-      console.log(`[ALERT] Tickets are LIVE, but alert was ALREADY sent at ${state.lastAlertSentTime}.`);
-      console.log(`[ALERT] Skipping duplicate Discord webhook dispatch.`);
-    } else {
-      console.log(`[ALERT] 🚨 NEW LIVE BOOKING DETECTED! Sending Discord alert now...`);
-      const sent = await sendTicketsLiveAlert(detectionResult);
-      if (sent) {
-        state.alertSent = true;
-        state.lastAlertSentTime = nowIso;
-        console.log(`[ALERT] ✅ Alert sent and state marked as alertSent = true.`);
-      } else {
-        console.warn(`[ALERT] ⚠️ Alert failed to send. State will allow retry on next run.`);
-      }
-    }
-  } else if (detectionResult.isFound) {
-    state.lastStatus = 'LISTED_COMING_SOON';
-    console.log(`[STATUS] Movie is listed on BMS Karwar, but booking is not yet live/available.`);
-  } else {
-    state.lastStatus = 'NOT_YET_LISTED';
-    console.log(`[STATUS] Ramayana is not yet listed on BMS Karwar.`);
-  }
-
-  // Persist updated state
-  saveState(state);
-
-  console.log(`[DONE] Tracker run finished successfully.`);
 }
 
-// Export modules for Next.js API routes
+// Export modules for Next.js API routes & test suites
 module.exports = {
   checkMovieAvailability,
+  checkAllMovies,
   sendTicketsLiveAlert,
   sendTestAlert,
   loadState,
   saveState,
+  addMovieToState,
+  removeMovieFromState,
+  getMovieMatcher,
+  isTitleMatch,
   CONFIG,
   URLS,
 };
@@ -692,4 +921,3 @@ if (require.main === module) {
     process.exit(CONFIG.testMode ? 1 : 0);
   });
 }
-

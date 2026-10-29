@@ -1,9 +1,36 @@
 {
+  "movies": [
+    {
+      "id": "ramayana",
+      "title": "Ramayana",
+      "keywords": [
+        "Ramayana",
+        "Ramayana: Part 1",
+        "Ramayana - Part 1",
+        "Ramayan"
+      ],
+      "alertSent": false,
+      "lastCheckTime": null,
+      "lastStatus": "INITIALIZED",
+      "detectedTitle": null,
+      "bookingUrl": "https://in.bookmyshow.com/explore/movies-karwar",
+      "theaters": [
+        "Miraj Cinemas: Geetanjali, Karwar"
+      ],
+      "lastAlertSentTime": null
+    }
+  ],
+  "settings": {
+    "region": "karwar",
+    "discordMention": "@everyone"
+  },
   "alertSent": false,
   "lastCheckTime": null,
   "lastStatus": "INITIALIZED",
   "detectedTitle": null,
-  "bookingUrl": null,
-  "theaters": [],
+  "bookingUrl": "https://in.bookmyshow.com/explore/movies-karwar",
+  "theaters": [
+    "Miraj Cinemas: Geetanjali, Karwar"
+  ],
   "lastAlertSentTime": null
 }

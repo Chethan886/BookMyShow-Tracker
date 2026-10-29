@@ -3,52 +3,82 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function POST() {
+export async function POST(request) {
   try {
     const {
       checkMovieAvailability,
+      checkAllMovies,
       sendTicketsLiveAlert,
       loadState,
       saveState,
     } = require('../../../tracker');
 
-    console.log('[API:TRACK] Manual check triggered via frontend');
+    const body = await request.json().catch(() => ({}));
+    const { movieId, all } = body;
+
     const state = loadState();
-    const result = await checkMovieAvailability();
-
     const nowIso = new Date().toISOString();
-    state.lastCheckTime = nowIso;
-    state.detectedTitle = result.movieTitle;
-    state.bookingUrl = result.bookingUrl;
-    state.theaters = result.theaters;
 
-    let alertDispatched = false;
-    if (result.isLive) {
-      state.lastStatus = 'LIVE';
-      if (!state.alertSent) {
-        alertDispatched = await sendTicketsLiveAlert(result);
-        if (alertDispatched) {
-          state.alertSent = true;
-          state.lastAlertSentTime = nowIso;
-        }
+    // Check specific movie if movieId provided
+    if (movieId && !all) {
+      const targetMovie = (state.movies || []).find(m => m.id === movieId);
+      if (!targetMovie) {
+        return NextResponse.json(
+          { success: false, error: `Movie with id "${movieId}" not found in tracker state.` },
+          { status: 404 }
+        );
       }
-    } else if (result.isFound) {
-      state.lastStatus = 'LISTED_COMING_SOON';
-    } else {
-      state.lastStatus = 'NOT_YET_LISTED';
+
+      console.log(`[API:TRACK] Manual check for single movie "${targetMovie.title}"`);
+      const result = await checkMovieAvailability(targetMovie);
+
+      targetMovie.lastCheckTime = nowIso;
+      targetMovie.detectedTitle = result.movieTitle;
+      targetMovie.bookingUrl = result.bookingUrl;
+      targetMovie.theaters = result.theaters;
+
+      let alertDispatched = false;
+      if (result.isLive) {
+        targetMovie.lastStatus = 'LIVE';
+        if (!targetMovie.alertSent) {
+          alertDispatched = await sendTicketsLiveAlert(result);
+          if (alertDispatched) {
+            targetMovie.alertSent = true;
+            targetMovie.lastAlertSentTime = nowIso;
+          }
+        }
+      } else if (result.isFound) {
+        targetMovie.lastStatus = 'LISTED_COMING_SOON';
+      } else {
+        targetMovie.lastStatus = 'NOT_YET_LISTED';
+      }
+
+      try {
+        saveState(state);
+      } catch {
+        // Vercel serverless read-only filesystem handling
+      }
+
+      return NextResponse.json({
+        success: true,
+        mode: 'single',
+        result,
+        movie: targetMovie,
+        movies: state.movies,
+        alertDispatched,
+        timestamp: nowIso,
+      });
     }
 
-    try {
-      saveState(state);
-    } catch {
-      // Vercel serverless filesystem is read-only outside /tmp
-    }
+    // Otherwise, check all tracked movies in batch
+    console.log('[API:TRACK] Manual batch check for all tracked movies');
+    const { results } = await checkAllMovies(state.movies, { sendAlerts: true });
 
     return NextResponse.json({
       success: true,
-      result,
-      state,
-      alertDispatched,
+      mode: 'all',
+      results,
+      movies: state.movies,
       timestamp: nowIso,
     });
   } catch (error) {

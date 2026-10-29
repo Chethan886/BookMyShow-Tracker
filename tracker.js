@@ -95,7 +95,7 @@ function getDefaultCinemaForRegion(regionSlug) {
 
 // Default baseline movie
 const DEFAULT_RAMAYANA_MOVIE = {
-  id: 'ramayana',
+  id: 'ramayana-karwar',
   title: 'Ramayana',
   keywords: ['Ramayana', 'Ramayana: Part 1', 'Ramayana - Part 1', 'Ramayan'],
   region: 'karwar',
@@ -263,7 +263,9 @@ function saveState(state) {
 }
 
 /**
- * Add or update a movie in state.json
+ * Add or update a movie tracker in state.json
+ * Supports multiple trackers for the same movie across different regions!
+ * e.g., "Ramayana (Karwar)" and "Ramayana (Bengaluru)" are separate trackers.
  */
 function addMovieToState(movieInput) {
   const state = loadState();
@@ -272,9 +274,20 @@ function addMovieToState(movieInput) {
     throw new Error('Movie title cannot be empty.');
   }
 
-  const id = slugify(movieInput.id || title);
   const movieRegion = (movieInput.region || state.settings?.region || CONFIG.region).toLowerCase().trim();
   const regionUrls = getRegionUrls(movieRegion);
+
+  // Unique ID per movie + region
+  const baseId = `${slugify(title)}-${slugify(movieRegion)}`;
+  let id = movieInput.id || baseId;
+
+  // Check if this exact tracker already exists
+  const existingIdx = state.movies.findIndex(m => m.id === id);
+
+  // If adding from form without explicit id, and exact duplicate exists, append unique suffix
+  if (!movieInput.id && existingIdx >= 0) {
+    id = `${baseId}-${Date.now().toString(36).slice(-4)}`;
+  }
 
   let keywords = [];
   if (Array.isArray(movieInput.keywords)) {
@@ -285,8 +298,6 @@ function addMovieToState(movieInput) {
   if (!keywords.some(k => k.toLowerCase() === title.toLowerCase())) {
     keywords.unshift(title);
   }
-
-  const existingIdx = state.movies.findIndex(m => m.id === id || m.title.toLowerCase() === title.toLowerCase());
 
   const movieEntry = {
     id,
@@ -303,7 +314,7 @@ function addMovieToState(movieInput) {
     addedAt: new Date().toISOString(),
   };
 
-  if (existingIdx >= 0) {
+  if (movieInput.id && existingIdx >= 0) {
     state.movies[existingIdx] = { ...state.movies[existingIdx], ...movieEntry };
   } else {
     state.movies.push(movieEntry);

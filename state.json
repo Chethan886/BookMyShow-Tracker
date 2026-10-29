@@ -7,7 +7,7 @@
   },
   "movies": [
     {
-      "id": "ramayana",
+      "id": "ramayana-karwar",
       "title": "Ramayana",
       "keywords": [
         "Ramayana",
@@ -15,13 +15,34 @@
         "Ramayana - Part 1",
         "Ramayan"
       ],
+      "region": "karwar",
       "alertSent": false,
       "lastCheckTime": null,
-      "lastStatus": "INITIALIZED",
+      "lastStatus": "NOT_YET_LISTED",
       "detectedTitle": null,
       "bookingUrl": "https://in.bookmyshow.com/explore/movies-karwar",
       "theaters": [
         "Miraj Cinemas: Geetanjali, Karwar"
+      ],
+      "lastAlertSentTime": null
+    },
+    {
+      "id": "ramayana-bengaluru",
+      "title": "Ramayana",
+      "keywords": [
+        "Ramayana",
+        "Ramayana: Part 1",
+        "Ramayana - Part 1",
+        "Ramayan"
+      ],
+      "region": "bengaluru",
+      "alertSent": false,
+      "lastCheckTime": null,
+      "lastStatus": "NOT_YET_LISTED",
+      "detectedTitle": null,
+      "bookingUrl": "https://in.bookmyshow.com/explore/movies-bengaluru",
+      "theaters": [
+        "PVR, INOX, Cinepolis"
       ],
       "lastAlertSentTime": null
     }

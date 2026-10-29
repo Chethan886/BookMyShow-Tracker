@@ -69,7 +69,14 @@ updateSettingsInState({
   checkIntervalMinutes: 15,
 });
 
-console.log('✅ Settings update and interval tests passed!');
+// Test separate trackers for same movie in different regions
+const tracker1 = addMovieToState({ title: 'Ramayana', region: 'karwar' });
+const tracker2 = addMovieToState({ title: 'Ramayana', region: 'bengaluru' });
+assert.notStrictEqual(tracker1.movie.id, tracker2.movie.id, 'IDs should be distinct for different regions');
+assert(tracker2.state.movies.some(m => m.region === 'karwar' && m.title.toLowerCase() === 'ramayana'), 'Should contain Ramayana Karwar');
+assert(tracker2.state.movies.some(m => m.region === 'bengaluru' && m.title.toLowerCase() === 'ramayana'), 'Should contain Ramayana Bengaluru');
+
+console.log('✅ Settings update, multi-region movie tracking, and interval tests passed!');
 
 console.log('\n=============================================');
 console.log('🎉 ALL MULTI-REGION & INTERVAL TESTS PASSED!');

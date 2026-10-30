@@ -19,6 +19,7 @@ import {
   Sparkles,
   Ticket,
   X,
+  Pencil,
 } from 'lucide-react';
 
 // Preset popular places on BookMyShow
@@ -50,12 +51,15 @@ const POPULAR_PRESETS = [
 
 const INTERVAL_OPTIONS = [
   { label: 'Off', minutes: 0 },
+  { label: '2m', minutes: 2 },
   { label: '5m', minutes: 5 },
   { label: '10m', minutes: 10 },
   { label: '15m', minutes: 15 },
   { label: '20m', minutes: 20 },
   { label: '30m', minutes: 30 },
+  { label: '45m', minutes: 45 },
   { label: '60m', minutes: 60 },
+  { label: '120m', minutes: 120 },
 ];
 
 export default function TrackerDashboard() {
@@ -409,6 +413,12 @@ export default function TrackerDashboard() {
     setIntervalMinutes(minutes);
     setCountdownSeconds(minutes * 60);
 
+    setFeedback({
+      type: 'info',
+      title: 'Check Time Updated',
+      msg: minutes > 0 ? `Auto-check interval set to every ${minutes} minutes.` : 'Auto-check disabled (Manual checks only).',
+    });
+
     try {
       await fetch('/api/settings', {
         method: 'POST',
@@ -755,8 +765,23 @@ export default function TrackerDashboard() {
                         <span className="text-slate-200 font-sans font-semibold">{placeObj.name}</span>
                       </div>
                       <div>
-                        <span className="text-slate-500 uppercase block text-[9px]">CHECKS</span>
-                        <span className="text-slate-200">{intervalMinutes > 0 ? `${intervalMinutes}m` : 'Manual'}</span>
+                        <span className="text-slate-500 uppercase block text-[9px] mb-0.5">CHECKS</span>
+                        <div className="relative inline-flex items-center group">
+                          <Clock className="w-3 h-3 text-indigo-400 absolute left-1.5 pointer-events-none" />
+                          <select
+                            value={intervalMinutes}
+                            onChange={(e) => handleChangeInterval(parseInt(e.target.value, 10))}
+                            className="appearance-none bg-slate-900/90 hover:bg-slate-800 text-slate-200 text-xs font-mono font-medium pl-5 pr-5 py-0.5 rounded-lg border border-slate-700/60 hover:border-indigo-500/50 focus:border-indigo-500 focus:outline-none cursor-pointer transition-colors shadow-sm"
+                            title="Click to edit check interval"
+                          >
+                            {INTERVAL_OPTIONS.map((opt) => (
+                              <option key={opt.minutes} value={opt.minutes} className="bg-slate-900 text-slate-200">
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                          <Pencil className="w-2.5 h-2.5 text-slate-400 group-hover:text-amber-400 pointer-events-none absolute right-1.5 transition-colors" />
+                        </div>
                       </div>
                       <div>
                         <span className="text-slate-500 uppercase block text-[9px]">LAST CHECKED</span>

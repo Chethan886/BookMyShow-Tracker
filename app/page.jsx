@@ -199,22 +199,68 @@ export default function TrackerDashboard() {
     }
   };
 
-  // Delete a movie tracker
-  const handleDeleteTracker = async (movieId, movieTitle) => {
-    if (!confirm(`Are you sure you want to stop tracking "${movieTitle}"?`)) return;
+  // Close modal on Escape key press
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && deleteModal.isOpen && !deleteModal.deleting) {
+        setDeleteModal({ isOpen: false, movie: null, deleting: false });
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [deleteModal.isOpen, deleteModal.deleting]);
+
+  // Open custom confirmation modal to delete a tracker
+  const promptDeleteTracker = (movie) => {
+    setDeleteModal({
+      isOpen: true,
+      movie,
+      deleting: false,
+    });
+  };
+
+  const closeDeleteModal = () => {
+    if (deleteModal.deleting) return;
+    setDeleteModal({ isOpen: false, movie: null, deleting: false });
+  };
+
+  const confirmDeleteTracker = async () => {
+    if (!deleteModal.movie) return;
+    const { id, title } = deleteModal.movie;
 
     try {
-      const res = await fetch(`/api/movies?id=${movieId}`, { method: 'DELETE' });
+      setDeleteModal((prev) => ({ ...prev, deleting: true }));
+      const res = await fetch(`/api/movies?id=${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
         setMovies(data.movies);
         try {
           localStorage.setItem('bms_tracked_movies', JSON.stringify(data.movies));
         } catch {}
+        setFeedback({
+          type: 'info',
+          title: 'Tracker Removed',
+          msg: `"${title}" is no longer being tracked.`,
+        });
+      } else {
+        throw new Error(data.error || 'Failed to remove tracker');
       }
     } catch (err) {
       console.warn('Failed to delete movie:', err.message);
+      setFeedback({
+        type: 'error',
+        title: 'Delete Failed',
+        msg: err.message,
+      });
+    } finally {
+      setDeleteModal({ isOpen: false, movie: null, deleting: false });
     }
+  };
+
+  // Compatibility fallback
+  const handleDeleteTracker = (movieId, movieTitle) => {
+    const m = movies.find((item) => item.id === movieId) || { id: movieId, title: movieTitle };
+    promptDeleteTracker(m);
   };
 
   // Check a single movie tracker

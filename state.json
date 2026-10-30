@@ -7,22 +7,60 @@
   },
   "movies": [
     {
-      "id": "ramayana-bengaluru-4d8u",
+      "id": "ramayana-karwar-8qdh",
       "title": "Ramayana",
       "keywords": [
         "Ramayana"
       ],
+      "region": "karwar",
+      "alertSent": false,
+      "lastCheckTime": "2026-10-29T21:59:22.645Z",
+      "lastStatus": "LISTED_COMING_SOON",
+      "detectedTitle": "Namit Malhotra's Ramayana",
+      "bookingUrl": "https://in.bookmyshow.com/namit-malhotras-ramayana",
+      "theaters": [
+        "Miraj Cinemas: Geetanjali, Karwar"
+      ],
+      "lastAlertSentTime": null,
+      "addedAt": "2026-10-29T21:33:34.469Z"
+    },
+    {
+      "id": "ramayana-bengaluru",
+      "title": "ramayana",
+      "keywords": [
+        "ramayana"
+      ],
       "region": "bengaluru",
       "alertSent": false,
-      "lastCheckTime": null,
-      "lastStatus": "NOT_YET_LISTED",
-      "detectedTitle": null,
-      "bookingUrl": "https://in.bookmyshow.com/explore/movies-bengaluru",
+      "lastCheckTime": "2026-10-29T21:59:51.327Z",
+      "lastStatus": "LISTED_COMING_SOON",
+      "detectedTitle": "Namit Malhotra's Ramayana",
+      "bookingUrl": "https://in.bookmyshow.com/movies/namit-malhotras-ramayana-3dkannada/ET00523152",
       "theaters": [
         "PVR, INOX, Cinepolis"
       ],
       "lastAlertSentTime": null,
-      "addedAt": "2026-10-29T17:18:14.286Z"
+      "addedAt": "2026-10-29T21:59:47.613Z"
+    },
+    {
+      "id": "premada-oorali-karwar",
+      "title": "Premada oorali",
+      "keywords": [
+        "Premada oorali",
+        "prema",
+        "oorali"
+      ],
+      "region": "karwar",
+      "alertSent": false,
+      "lastCheckTime": "2026-10-30T08:17:27.458Z",
+      "lastStatus": "LISTED_COMING_SOON",
+      "detectedTitle": "Premada Oorali",
+      "bookingUrl": "https://in.bookmyshow.com/movies/premada-oorali/ET00412717",
+      "theaters": [
+        "Miraj Cinemas: Geetanjali, Karwar"
+      ],
+      "lastAlertSentTime": null,
+      "addedAt": "2026-10-30T08:17:23.001Z"
     },
     {
       "id": "ramayana-karwar",
@@ -32,24 +70,6 @@
       ],
       "region": "karwar",
       "alertSent": false,
-      "lastCheckTime": "2026-10-29T18:58:11.201Z",
-      "lastStatus": "NOT_YET_LISTED",
-      "detectedTitle": "Ramayana",
-      "bookingUrl": "https://in.bookmyshow.com/explore/movies-karwar",
-      "theaters": [
-        "Miraj Cinemas: Geetanjali, Karwar"
-      ],
-      "lastAlertSentTime": null,
-      "addedAt": "2026-10-29T18:29:41.827Z"
-    },
-    {
-      "id": "ramayana-karwar-8qdh",
-      "title": "Ramayana",
-      "keywords": [
-        "Ramayana"
-      ],
-      "region": "karwar",
-      "alertSent": false,
       "lastCheckTime": null,
       "lastStatus": "NOT_YET_LISTED",
       "detectedTitle": null,
@@ -58,10 +78,10 @@
         "Miraj Cinemas: Geetanjali, Karwar"
       ],
       "lastAlertSentTime": null,
-      "addedAt": "2026-10-29T21:33:34.469Z"
+      "addedAt": "2026-10-30T09:12:40.554Z"
     },
     {
-      "id": "ramayana-bengaluru",
+      "id": "ramayana-bengaluru-7s6k",
       "title": "Ramayana",
       "keywords": [
         "Ramayana"
@@ -76,16 +96,16 @@
         "PVR, INOX, Cinepolis"
       ],
       "lastAlertSentTime": null,
-      "addedAt": "2026-10-29T21:33:34.471Z"
+      "addedAt": "2026-10-30T09:12:40.556Z"
     }
   ],
   "alertSent": false,
-  "lastCheckTime": null,
-  "lastStatus": "NOT_YET_LISTED",
-  "detectedTitle": null,
-  "bookingUrl": "https://in.bookmyshow.com/explore/movies-bengaluru",
+  "lastCheckTime": "2026-10-29T21:59:22.645Z",
+  "lastStatus": "LISTED_COMING_SOON",
+  "detectedTitle": "Namit Malhotra's Ramayana",
+  "bookingUrl": "https://in.bookmyshow.com/namit-malhotras-ramayana",
   "theaters": [
-    "PVR, INOX, Cinepolis"
+    "Miraj Cinemas: Geetanjali, Karwar"
   ],
   "lastAlertSentTime": null
 }

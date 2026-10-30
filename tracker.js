@@ -548,6 +548,63 @@ function parseNextData(html, matcher) {
   return null;
 }
 
+
+async function verifyMovieLive(movieUrl, region) {
+  if (!movieUrl || !movieUrl.startsWith('http')) return false;
+  try {
+    console.log(`[LIVE_VERIFY] Checking direct movie page for booking availability: ${movieUrl}`);
+    const res = await curlFetch(movieUrl, region);
+    const html = res && res.data ? (typeof res.data === 'string' ? res.data : JSON.stringify(res.data)) : '';
+    if (!html) return false;
+
+    // Check for Book tickets button or active showtimes phase
+    const hasBookBtn =
+      /book\s*tickets?|buy\s*tickets?|data-phase=["']postRelease["']|\/buytickets\//i.test(html);
+    console.log(`[LIVE_VERIFY] Result for ${movieUrl}: hasBookBtn=${hasBookBtn}`);
+    return hasBookBtn;
+  } catch (err) {
+    console.warn(`[LIVE_VERIFY] Could not verify movie page: ${err.message}`);
+    return false;
+  }
+}
+
+function parseJsonLd(html, matcher, pageUrl, region) {
+  const matches = [];
+  try {
+    const $ = cheerio.load(html);
+    $('script[type="application/ld+json"]').each((_, elem) => {
+      const content = $(elem).html();
+      if (!content) return;
+      try {
+        const json = JSON.parse(content);
+        if (json['@type'] === 'ItemList' && Array.isArray(json.itemListElement)) {
+          for (const item of json.itemListElement) {
+            const name = item.name || '';
+            const url = item.url || '';
+            if (isTitleMatch(name, matcher) || isTitleMatch(url, matcher)) {
+              let fullUrl = url;
+              if (url && !url.startsWith('http')) {
+                fullUrl = `https://in.bookmyshow.com${url.startsWith('/') ? '' : '/'}${url}`;
+              }
+              const isNowShowing = pageUrl && !pageUrl.includes('upcoming');
+              matches.push({
+                title: name,
+                bookingUrl: fullUrl || pageUrl,
+                isBookable: Boolean(isNowShowing || (url && url.includes('/buytickets/'))),
+                isNowShowing,
+                source: 'JSON_LD',
+              });
+            }
+          }
+        }
+      } catch {}
+    });
+  } catch (err) {
+    console.warn('[PARSE:JSON_LD] Error:', err.message);
+  }
+  return matches;
+}
+
 function parseDomForMovie(html, pageUrl, matcher) {
   const matches = [];
   try {
@@ -807,8 +864,30 @@ async function checkMovieAvailability(movieInput, preloadedData = null, override
 
   for (const page of data.pages) {
     if (!page.html) continue;
+    const isNowShowingPage = page.url && !page.url.includes('upcoming');
 
-    // Layer 1: Next.js JSON Extraction
+    // Layer 1: JSON-LD Schema (ItemList of movies running in region)
+    const jsonLdMatches = parseJsonLd(page.html, matcher, page.url, effectiveRegion);
+    if (jsonLdMatches && jsonLdMatches.length > 0) {
+      const candidate = jsonLdMatches[0];
+      result.isFound = true;
+      result.movieTitle = candidate.title || result.movieTitle;
+      if (candidate.bookingUrl) result.bookingUrl = candidate.bookingUrl;
+      result.strategyUsed = 'JSON_LD';
+
+      console.log(`[DETECTION] JSON-LD Match for "${matcher.title}" in ${page.name}: "${result.movieTitle}"`);
+
+      // Verify if tickets are live on the movie page
+      const liveVerified = await verifyMovieLive(candidate.bookingUrl, effectiveRegion);
+      if (liveVerified || isNowShowingPage) {
+        result.isLive = true;
+        result.strategyUsed = liveVerified ? 'JSON_LD+LIVE_VERIFIED' : 'JSON_LD_NOW_SHOWING';
+        console.log(`[DETECTION] Confirmed LIVE for "${result.movieTitle}" via ${result.strategyUsed}`);
+        return result;
+      }
+    }
+
+    // Layer 2: Next.js JSON Extraction
     const nextMatches = parseNextData(page.html, matcher);
     if (nextMatches && nextMatches.length > 0) {
       result.isFound = true;
@@ -823,19 +902,32 @@ async function checkMovieAvailability(movieInput, preloadedData = null, override
       if (result.isLive) return result;
     }
 
-    // Layer 2: Cheerio DOM Parsing
+    // Layer 3: Cheerio DOM Parsing
     const domMatches = parseDomForMovie(page.html, page.url, matcher);
     if (domMatches && domMatches.length > 0) {
       result.isFound = true;
-      result.strategyUsed = result.strategyUsed === 'NEXT_DATA' ? 'NEXT_DATA+DOM' : 'DOM';
+      result.strategyUsed = result.strategyUsed === 'NONE' ? 'DOM' : result.strategyUsed;
 
-      const liveMatch = domMatches.find(m => m.isBookable) || domMatches[0];
-      result.movieTitle = liveMatch.title || result.movieTitle;
-      if (liveMatch.bookingUrl) result.bookingUrl = liveMatch.bookingUrl;
-      if (liveMatch.isBookable) result.isLive = true;
+      const candidate = domMatches.find(m => m.isBookable) || domMatches[0];
+      result.movieTitle = candidate.title || result.movieTitle;
+      if (candidate.bookingUrl) result.bookingUrl = candidate.bookingUrl;
 
-      console.log(`[DETECTION] DOM Match for "${matcher.title}" in ${page.name}: "${result.movieTitle}" | Live: ${result.isLive}`);
-      if (result.isLive) return result;
+      console.log(`[DETECTION] DOM Match for "${matcher.title}" in ${page.name}: "${result.movieTitle}" (URL: ${result.bookingUrl})`);
+
+      // Verify live tickets if found on Now Showing page or if it has a movie details URL
+      const isMovieUrl = candidate.bookingUrl && (candidate.bookingUrl.includes('/movies/') || candidate.bookingUrl.includes('/buytickets/'));
+      if (candidate.isBookable) {
+        result.isLive = true;
+        return result;
+      } else if (isNowShowingPage && isMovieUrl) {
+        const liveVerified = await verifyMovieLive(candidate.bookingUrl, effectiveRegion);
+        if (liveVerified) {
+          result.isLive = true;
+          result.strategyUsed = 'DOM+LIVE_VERIFIED';
+          console.log(`[DETECTION] Confirmed LIVE for "${result.movieTitle}" via direct page check!`);
+          return result;
+        }
+      }
     }
   }
 

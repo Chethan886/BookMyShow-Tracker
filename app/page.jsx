@@ -119,11 +119,28 @@ export default function TrackerDashboard() {
         }
       }
 
-      if (moviesData.success && moviesData.movies && moviesData.movies.length > 0) {
-        setMovies(moviesData.movies);
+      let localMovies = [];
+      try {
+        const cached = localStorage.getItem('bms_tracked_movies');
+        if (cached) localMovies = JSON.parse(cached);
+      } catch {}
+
+      if (moviesData.success && Array.isArray(moviesData.movies)) {
+        const movieMap = new Map();
+        // Server movies first
+        moviesData.movies.forEach((m) => movieMap.set(m.id, m));
+        // Client movies take priority to preserve user additions on Vercel
+        localMovies.forEach((m) => {
+          const serverEntry = movieMap.get(m.id);
+          movieMap.set(m.id, serverEntry ? { ...serverEntry, ...m } : m);
+        });
+        const merged = Array.from(movieMap.values());
+        setMovies(merged);
         try {
-          localStorage.setItem('bms_tracked_movies', JSON.stringify(moviesData.movies));
+          localStorage.setItem('bms_tracked_movies', JSON.stringify(merged));
         } catch {}
+      } else if (localMovies.length > 0) {
+        setMovies(localMovies);
       }
     } catch (err) {
       console.warn('Failed to fetch initial data:', err.message);
@@ -177,18 +194,22 @@ export default function TrackerDashboard() {
       });
 
       const data = await res.json();
-      if (data.success) {
-        setMovies(data.movies);
+      if (data.success && data.movie) {
+        const added = data.movie;
+        setMovies((prev) => {
+          const next = [...prev.filter((m) => m.id !== added.id), added];
+          try {
+            localStorage.setItem('bms_tracked_movies', JSON.stringify(next));
+          } catch {}
+          return next;
+        });
         setFormTitle('');
         setFormKeywords('');
         setFeedback({
           type: 'success',
           title: 'Tracker Added!',
-          msg: `"${data.movie.title}" is now actively tracked in ${data.movie.region.toUpperCase()}.`,
+          msg: `"${added.title}" is now actively tracked in ${added.region.toUpperCase()}.`,
         });
-        try {
-          localStorage.setItem('bms_tracked_movies', JSON.stringify(data.movies));
-        } catch {}
       } else {
         throw new Error(data.error || 'Failed to add tracker');
       }
@@ -287,14 +308,23 @@ export default function TrackerDashboard() {
       const data = await res.json();
 
       if (data.success) {
-        const { result, movie: updatedMovie, alertDispatched, movies: updatedMovies } = data;
-        if (updatedMovies && updatedMovies.length > 0) {
-          setMovies(updatedMovies);
-        } else {
-          setMovies((prev) =>
-            prev.map((m) => (m.id === updatedMovie.id ? { ...m, ...updatedMovie } : m))
+        const { result, movie: updatedMovie, alertDispatched } = data;
+        setMovies((prev) => {
+          const exists = prev.some(
+            (m) => m.id === updatedMovie.id || m.title.toLowerCase() === updatedMovie.title.toLowerCase()
           );
-        }
+          const next = exists
+            ? prev.map((m) =>
+                m.id === updatedMovie.id || m.title.toLowerCase() === updatedMovie.title.toLowerCase()
+                  ? { ...m, ...updatedMovie }
+                  : m
+              )
+            : [...prev, updatedMovie];
+          try {
+            localStorage.setItem('bms_tracked_movies', JSON.stringify(next));
+          } catch {}
+          return next;
+        });
 
         if (result.isLive) {
           setFeedback({
@@ -703,14 +733,30 @@ export default function TrackerDashboard() {
               return (
                 <div
                   key={m.id}
-                  className={`bg-[#131622] rounded-2xl p-5 border transition-all ${
+                  className={`rounded-2xl p-5 border transition-all duration-300 relative overflow-hidden ${
                     isLive
-                      ? 'border-emerald-500/60 shadow-lg shadow-emerald-500/10'
-                      : 'border-slate-800/90 hover:border-slate-700'
+                      ? 'bg-gradient-to-br from-emerald-950 via-[#0a2318] to-[#0c1a14] border-2 border-emerald-400 shadow-2xl shadow-emerald-500/25 ring-1 ring-emerald-400/50'
+                      : 'bg-[#131622] border-slate-800/90 hover:border-slate-700'
                   }`}
                 >
+                  {/* Live Tickets Available Top Banner */}
+                  {isLive && (
+                    <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-emerald-500/25 border border-emerald-400/60 text-emerald-200 mb-4 shadow-inner animate-in fade-in duration-300">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
+                        <Ticket className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span className="font-extrabold text-xs tracking-wider uppercase">
+                          🎟️ Tickets Available Now — Booking is Open!
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-mono bg-emerald-400 text-slate-950 px-2.5 py-0.5 rounded-full font-black uppercase tracking-wider shadow-sm">
+                        Live
+                      </span>
+                    </div>
+                  )}
+
                   {/* Top Row: Region Badge & Live Status */}
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-800/60">
+                  <div className={`flex items-center justify-between pb-3 border-b ${isLive ? 'border-emerald-500/30' : 'border-slate-800/60'}`}>
                     <div className="flex items-center gap-2">
                       {/* Region Tag */}
                       <span className="px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/30">
@@ -807,15 +853,15 @@ export default function TrackerDashboard() {
                           href={m.bookingUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className={`px-3 py-1.5 rounded-lg font-semibold text-xs flex items-center gap-1 transition-colors ${
+                          className={`px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all ${
                             isLive
-                              ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/30 font-bold'
+                              ? 'bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-slate-950 shadow-lg shadow-emerald-500/40 hover:scale-105 active:scale-95 font-black'
                               : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
                           }`}
                         >
-                          <Ticket className="w-3.5 h-3.5" />
-                          <span>{isLive ? 'Book Tickets' : 'BookMyShow'}</span>
-                          <ExternalLink className="w-3 h-3 ml-0.5" />
+                          <Ticket className={`w-3.5 h-3.5 ${isLive ? 'text-slate-950' : 'text-slate-400'}`} />
+                          <span>{isLive ? 'Book Tickets Now' : 'BookMyShow'}</span>
+                          <ExternalLink className={`w-3 h-3 ml-0.5 ${isLive ? 'text-slate-950' : 'text-slate-400'}`} />
                         </a>
                       )}
 

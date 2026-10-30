@@ -121,27 +121,57 @@ export default function TrackerDashboard() {
       }
 
       let localMovies = [];
+      let deletedIds = [];
       try {
         const cached = localStorage.getItem('bms_tracked_movies');
         if (cached) localMovies = JSON.parse(cached);
+        const cachedDeleted = localStorage.getItem('bms_deleted_movies');
+        if (cachedDeleted) deletedIds = JSON.parse(cachedDeleted);
       } catch {}
 
       if (moviesData.success && Array.isArray(moviesData.movies)) {
         const movieMap = new Map();
-        // Server movies first
-        moviesData.movies.forEach((m) => movieMap.set(m.id, m));
+        // Server movies first (excluding anything the user deleted)
+        moviesData.movies
+          .filter((m) => !deletedIds.includes(m.id))
+          .forEach((m) => movieMap.set(m.id, m));
         // Client movies take priority to preserve user additions on Vercel
-        localMovies.forEach((m) => {
-          const serverEntry = movieMap.get(m.id);
-          movieMap.set(m.id, serverEntry ? { ...serverEntry, ...m } : m);
-        });
+        localMovies
+          .filter((m) => !deletedIds.includes(m.id))
+          .forEach((m) => {
+            const serverEntry = movieMap.get(m.id);
+            movieMap.set(m.id, serverEntry ? { ...serverEntry, ...m } : m);
+          });
         const merged = Array.from(movieMap.values());
-        setMovies(merged);
+        // Deduplicate by title + region so identical duplicates are cleanly collapsed
+        const seenKeys = new Set();
+        const deduplicated = [];
+        for (const item of merged) {
+          const key = `${(item.title || '').trim().toLowerCase()}:::${(item.region || '').trim().toLowerCase()}`;
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            deduplicated.push(item);
+          }
+        }
+        setMovies(deduplicated);
         try {
-          localStorage.setItem('bms_tracked_movies', JSON.stringify(merged));
+          localStorage.setItem('bms_tracked_movies', JSON.stringify(deduplicated));
         } catch {}
       } else if (localMovies.length > 0) {
-        setMovies(localMovies);
+        const filtered = localMovies.filter((m) => !deletedIds.includes(m.id));
+        const seenKeys = new Set();
+        const deduplicated = [];
+        for (const item of filtered) {
+          const key = `${(item.title || '').trim().toLowerCase()}:::${(item.region || '').trim().toLowerCase()}`;
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            deduplicated.push(item);
+          }
+        }
+        setMovies(deduplicated);
+        try {
+          localStorage.setItem('bms_tracked_movies', JSON.stringify(deduplicated));
+        } catch {}
       }
     } catch (err) {
       console.warn('Failed to fetch initial data:', err.message);
@@ -215,6 +245,11 @@ export default function TrackerDashboard() {
           const next = [...prev.filter((m) => m.id !== added.id), added];
           try {
             localStorage.setItem('bms_tracked_movies', JSON.stringify(next));
+            const cachedDeleted = localStorage.getItem('bms_deleted_movies');
+            if (cachedDeleted) {
+              const updatedDeleted = JSON.parse(cachedDeleted).filter((delId) => delId !== added.id);
+              localStorage.setItem('bms_deleted_movies', JSON.stringify(updatedDeleted));
+            }
           } catch {}
           return next;
         });
@@ -268,30 +303,35 @@ export default function TrackerDashboard() {
     if (!deleteModal.movie) return;
     const { id, title } = deleteModal.movie;
 
+    // Immediately remove from client UI state and persist deletion
+    setMovies((prev) => {
+      const next = prev.filter((m) => m.id !== id);
+      try {
+        localStorage.setItem('bms_tracked_movies', JSON.stringify(next));
+        let deletedIds = [];
+        try {
+          const cached = localStorage.getItem('bms_deleted_movies');
+          if (cached) deletedIds = JSON.parse(cached);
+        } catch {}
+        if (!deletedIds.includes(id)) {
+          deletedIds.push(id);
+          localStorage.setItem('bms_deleted_movies', JSON.stringify(deletedIds));
+        }
+      } catch {}
+      return next;
+    });
+
+    setFeedback({
+      type: 'info',
+      title: 'Tracker Removed',
+      msg: `"${title}" is no longer being tracked.`,
+    });
+
     try {
       setDeleteModal((prev) => ({ ...prev, deleting: true }));
-      const res = await fetch(`/api/movies?id=${id}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) {
-        setMovies(data.movies);
-        try {
-          localStorage.setItem('bms_tracked_movies', JSON.stringify(data.movies));
-        } catch {}
-        setFeedback({
-          type: 'info',
-          title: 'Tracker Removed',
-          msg: `"${title}" is no longer being tracked.`,
-        });
-      } else {
-        throw new Error(data.error || 'Failed to remove tracker');
-      }
+      await fetch(`/api/movies?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
     } catch (err) {
-      console.warn('Failed to delete movie:', err.message);
-      setFeedback({
-        type: 'error',
-        title: 'Delete Failed',
-        msg: err.message,
-      });
+      console.warn('Backend delete notification non-fatal:', err.message);
     } finally {
       setDeleteModal({ isOpen: false, movie: null, deleting: false });
     }
@@ -391,7 +431,23 @@ export default function TrackerDashboard() {
       const data = await res.json();
 
       if (data.success) {
-        if (data.movies) setMovies(data.movies);
+        if (data.movies) {
+          let deletedIds = [];
+          try {
+            const cachedDeleted = localStorage.getItem('bms_deleted_movies');
+            if (cachedDeleted) deletedIds = JSON.parse(cachedDeleted);
+          } catch {}
+          setMovies((prev) => {
+            const serverClean = data.movies.filter((m) => !deletedIds.includes(m.id));
+            const serverIds = new Set(serverClean.map((m) => m.id));
+            const localOnly = prev.filter((m) => !serverIds.has(m.id) && !deletedIds.includes(m.id));
+            const next = [...serverClean, ...localOnly];
+            try {
+              localStorage.setItem('bms_tracked_movies', JSON.stringify(next));
+            } catch {}
+            return next;
+          });
+        }
         const liveMovies = (data.results || []).filter((r) => r.isLive);
 
         if (liveMovies.length > 0) {

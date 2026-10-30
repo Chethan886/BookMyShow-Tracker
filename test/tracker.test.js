@@ -76,6 +76,10 @@ assert.notStrictEqual(tracker1.movie.id, tracker2.movie.id, 'IDs should be disti
 assert(tracker2.state.movies.some(m => m.region === 'karwar' && m.title.toLowerCase() === 'ramayana'), 'Should contain Ramayana Karwar');
 assert(tracker2.state.movies.some(m => m.region === 'bengaluru' && m.title.toLowerCase() === 'ramayana'), 'Should contain Ramayana Bengaluru');
 
+// Clean up test trackers
+removeMovieFromState(tracker1.movie.id);
+removeMovieFromState(tracker2.movie.id);
+
 console.log('✅ Settings update, multi-region movie tracking, and interval tests passed!');
 
 console.log('\n=============================================');

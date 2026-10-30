@@ -80,6 +80,7 @@ export default function TrackerDashboard() {
   const [formTitle, setFormTitle] = useState('');
   const [formRegion, setFormRegion] = useState('karwar');
   const [formKeywords, setFormKeywords] = useState('');
+  const [formInterval, setFormInterval] = useState(15);
   const [addingMovie, setAddingMovie] = useState(false);
 
   // Global settings
@@ -159,20 +160,33 @@ export default function TrackerDashboard() {
 
   // Auto-Check Countdown & Polling Loop
   useEffect(() => {
-    if (intervalMinutes <= 0) return;
-
-    const timer = setInterval(() => {
-      setCountdownSeconds((prev) => {
-        if (prev <= 1) {
-          handleCheckAllMovies(true);
-          return intervalMinutes * 60;
-        }
-        return prev - 1;
-      });
+    // Top-level countdown timer
+    const countdownTimer = setInterval(() => {
+      setCountdownSeconds((prev) => (prev <= 1 ? 60 : prev - 1));
     }, 1000);
 
-    return () => clearInterval(timer);
-  }, [intervalMinutes, movies]);
+    // Per-movie independent auto-checker
+    const checkTimer = setInterval(() => {
+      const now = Date.now();
+      movies.forEach((m) => {
+        const interval = m.intervalMinutes !== undefined ? m.intervalMinutes : 15;
+        if (interval <= 0) return; // Disabled
+
+        const lastCheck = m.lastCheckTime ? new Date(m.lastCheckTime).getTime() : 0;
+        const elapsedMinutes = (now - lastCheck) / (1000 * 60);
+
+        if (elapsedMinutes >= interval) {
+          console.log(`[AUTO_CHECK] Triggering scheduled check for "${m.title}" (interval: ${interval}m)`);
+          handleCheckSingleMovie(m);
+        }
+      });
+    }, 20000); // Poll every 20 seconds for due movie checks
+
+    return () => {
+      clearInterval(countdownTimer);
+      clearInterval(checkTimer);
+    };
+  }, [movies]);
 
   // Handle adding a new movie tracker
   const handleAddTracker = async (e) => {
@@ -190,6 +204,7 @@ export default function TrackerDashboard() {
           title: formTitle.trim(),
           region: formRegion,
           keywords: formKeywords.trim(),
+          intervalMinutes: formInterval,
         }),
       });
 
@@ -438,6 +453,45 @@ export default function TrackerDashboard() {
     }
   };
 
+  // Update check interval for a SPECIFIC movie tracker
+  const handleUpdateMovieInterval = async (movieId, newInterval) => {
+    let targetTitle = '';
+    setMovies((prev) => {
+      const next = prev.map((m) => {
+        if (m.id === movieId) {
+          targetTitle = m.title;
+          return {
+            ...m,
+            intervalMinutes: newInterval,
+            checkIntervalMinutes: newInterval,
+          };
+        }
+        return m;
+      });
+      try {
+        localStorage.setItem('bms_tracked_movies', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    setFeedback({
+      type: 'info',
+      title: 'Interval Updated',
+      msg:
+        newInterval > 0
+          ? `"${targetTitle || 'Movie'}" check interval set to every ${newInterval}m.`
+          : `"${targetTitle || 'Movie'}" auto-check disabled (manual checks only).`,
+    });
+
+    try {
+      await fetch('/api/movies', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: movieId, intervalMinutes: newInterval }),
+      });
+    } catch {}
+  };
+
   // Change interval
   const handleChangeInterval = async (minutes) => {
     setIntervalMinutes(minutes);
@@ -632,8 +686,8 @@ export default function TrackerDashboard() {
               <div className="relative">
                 <Timer className="w-4 h-4 text-indigo-400 absolute left-3.5 top-3" />
                 <select
-                  value={intervalMinutes}
-                  onChange={(e) => handleChangeInterval(parseInt(e.target.value, 10))}
+                  value={formInterval}
+                  onChange={(e) => setFormInterval(parseInt(e.target.value, 10))}
                   className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-[#0c0e17] border border-slate-800 text-white text-xs focus:outline-none focus:border-bms-red cursor-pointer"
                 >
                   {INTERVAL_OPTIONS.map((opt) => (
@@ -815,8 +869,8 @@ export default function TrackerDashboard() {
                         <div className="relative inline-flex items-center group">
                           <Clock className="w-3 h-3 text-indigo-400 absolute left-1.5 pointer-events-none" />
                           <select
-                            value={intervalMinutes}
-                            onChange={(e) => handleChangeInterval(parseInt(e.target.value, 10))}
+                            value={m.intervalMinutes !== undefined ? m.intervalMinutes : 15}
+                            onChange={(e) => handleUpdateMovieInterval(m.id, parseInt(e.target.value, 10))}
                             className="appearance-none bg-slate-900/90 hover:bg-slate-800 text-slate-200 text-xs font-mono font-medium pl-5 pr-5 py-0.5 rounded-lg border border-slate-700/60 hover:border-indigo-500/50 focus:border-indigo-500 focus:outline-none cursor-pointer transition-colors shadow-sm"
                             title="Click to edit check interval"
                           >

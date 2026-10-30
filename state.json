@@ -2,7 +2,7 @@
   "settings": {
     "region": "karwar",
     "regionName": "Karwar, Karnataka",
-    "checkIntervalMinutes": 60,
+    "checkIntervalMinutes": 15,
     "discordMention": "@everyone"
   },
   "movies": [
@@ -25,15 +25,55 @@
       ],
       "lastAlertSentTime": null,
       "addedAt": "2026-10-30T09:26:43.299Z"
+    },
+    {
+      "id": "ramayana-karwar-unxu",
+      "title": "Ramayana",
+      "keywords": [
+        "Ramayana"
+      ],
+      "region": "karwar",
+      "intervalMinutes": 15,
+      "checkIntervalMinutes": 15,
+      "alertSent": false,
+      "lastCheckTime": null,
+      "lastStatus": "NOT_YET_LISTED",
+      "detectedTitle": null,
+      "bookingUrl": "https://in.bookmyshow.com/explore/movies-karwar",
+      "theaters": [
+        "Miraj Cinemas: Geetanjali, Karwar"
+      ],
+      "lastAlertSentTime": null,
+      "addedAt": "2026-10-30T11:22:26.610Z"
+    },
+    {
+      "id": "ramayana-bengaluru",
+      "title": "Ramayana",
+      "keywords": [
+        "Ramayana"
+      ],
+      "region": "bengaluru",
+      "intervalMinutes": 15,
+      "checkIntervalMinutes": 15,
+      "alertSent": false,
+      "lastCheckTime": null,
+      "lastStatus": "NOT_YET_LISTED",
+      "detectedTitle": null,
+      "bookingUrl": "https://in.bookmyshow.com/explore/movies-bengaluru",
+      "theaters": [
+        "PVR, INOX, Cinepolis"
+      ],
+      "lastAlertSentTime": null,
+      "addedAt": "2026-10-30T11:22:26.612Z"
     }
   ],
-  "alertSent": true,
-  "lastCheckTime": "2026-10-30T09:25:27.965Z",
-  "lastStatus": "LIVE",
-  "detectedTitle": "Premada Oorali",
-  "bookingUrl": "https://in.bookmyshow.com/karwar/movies/premada-oorali/ET00412717",
+  "alertSent": false,
+  "lastCheckTime": "2026-10-30T09:27:31.469Z",
+  "lastStatus": "LISTED_COMING_SOON",
+  "detectedTitle": "Namit Malhotra's Ramayana",
+  "bookingUrl": "https://in.bookmyshow.com/namit-malhotras-ramayana",
   "theaters": [
     "Miraj Cinemas: Geetanjali, Karwar"
   ],
-  "lastAlertSentTime": "2026-10-30T09:25:27.965Z"
+  "lastAlertSentTime": null
 }

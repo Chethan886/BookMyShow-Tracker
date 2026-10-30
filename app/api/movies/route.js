@@ -25,7 +25,7 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json().catch(() => ({}));
-    const { title, keywords, region } = body;
+    const { title, keywords, region, intervalMinutes } = body;
 
     if (!title || !title.trim()) {
       return NextResponse.json(
@@ -35,7 +35,7 @@ export async function POST(request) {
     }
 
     const { addMovieToState } = require('../../../tracker');
-    const { state, movie } = addMovieToState({ title: title.trim(), keywords, region });
+    const { state, movie } = addMovieToState({ title: title.trim(), keywords, region, intervalMinutes });
 
     return NextResponse.json({
       success: true,
@@ -86,3 +86,44 @@ export async function DELETE(request) {
   }
 }
 
+
+
+export async function PATCH(request) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const { id, intervalMinutes } = body;
+
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: 'Movie id is required to update interval.' },
+        { status: 400 }
+      );
+    }
+
+    const { loadState, saveState } = require('../../../tracker');
+    const state = loadState();
+    const movie = (state.movies || []).find((m) => m.id === id);
+
+    if (movie) {
+      const mins = parseInt(intervalMinutes, 10);
+      movie.intervalMinutes = isNaN(mins) ? 15 : mins;
+      movie.checkIntervalMinutes = movie.intervalMinutes;
+      try {
+        saveState(state);
+      } catch {}
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Movie check interval updated successfully.',
+      movie,
+      movies: state.movies,
+    });
+  } catch (error) {
+    console.error('[API:MOVIES:PATCH] Error:', error);
+    return NextResponse.json(
+      { success: false, error: error.message },
+      { status: 500 }
+    );
+  }
+}

@@ -356,11 +356,17 @@ function addMovieToState(movieInput) {
     keywords.unshift(title);
   }
 
+  const movieInterval = movieInput.intervalMinutes !== undefined 
+    ? parseInt(movieInput.intervalMinutes, 10) 
+    : (state.settings?.checkIntervalMinutes || 15);
+
   const movieEntry = {
     id,
     title,
     keywords,
     region: movieRegion,
+    intervalMinutes: movieInterval,
+    checkIntervalMinutes: movieInterval,
     alertSent: false,
     lastCheckTime: null,
     lastStatus: 'NOT_YET_LISTED',

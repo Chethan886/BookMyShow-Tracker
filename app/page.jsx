@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Film,
   MapPin,
@@ -86,6 +86,8 @@ export default function TrackerDashboard() {
   // Global settings
   const [intervalMinutes, setIntervalMinutes] = useState(15);
   const [countdownSeconds, setCountdownSeconds] = useState(15 * 60);
+  const [now, setNow] = useState(Date.now());
+  const inProgressChecksRef = useRef(new Set());
 
   const [loading, setLoading] = useState(true);
   const [checkingMovieId, setCheckingMovieId] = useState(null);
@@ -188,34 +190,39 @@ export default function TrackerDashboard() {
     fetchInitialData();
   }, []);
 
-  // Auto-Check Countdown & Polling Loop
+  // Independent Per-Movie Auto-Check & 1-Second Live Countdown Loop
   useEffect(() => {
-    // Top-level countdown timer
-    const countdownTimer = setInterval(() => {
-      setCountdownSeconds((prev) => (prev <= 1 ? 60 : prev - 1));
-    }, 1000);
+    const timer = setInterval(() => {
+      const current = Date.now();
+      setNow(current);
 
-    // Per-movie independent auto-checker
-    const checkTimer = setInterval(() => {
-      const now = Date.now();
+      // Check each movie independently according to its own interval
       movies.forEach((m) => {
         const interval = m.intervalMinutes !== undefined ? m.intervalMinutes : 15;
-        if (interval <= 0) return; // Disabled
+        if (interval <= 0) return; // Disabled / Manual
 
-        const lastCheck = m.lastCheckTime ? new Date(m.lastCheckTime).getTime() : 0;
-        const elapsedMinutes = (now - lastCheck) / (1000 * 60);
+        if (inProgressChecksRef.current.has(m.id)) return;
 
-        if (elapsedMinutes >= interval) {
-          console.log(`[AUTO_CHECK] Triggering scheduled check for "${m.title}" (interval: ${interval}m)`);
-          handleCheckSingleMovie(m);
+        const refTime = m.lastCheckTime
+          ? new Date(m.lastCheckTime).getTime()
+          : (m.addedAt ? new Date(m.addedAt).getTime() : 0);
+
+        if (!refTime) return;
+
+        const elapsedMs = current - refTime;
+        const intervalMs = interval * 60 * 1000;
+
+        if (elapsedMs >= intervalMs) {
+          inProgressChecksRef.current.add(m.id);
+          console.log(`[AUTO_CHECK] Triggering scheduled check for "${m.title}" (${m.region}) - interval: ${interval}m`);
+          handleCheckSingleMovie(m).finally(() => {
+            inProgressChecksRef.current.delete(m.id);
+          });
         }
       });
-    }, 20000); // Poll every 20 seconds for due movie checks
+    }, 1000);
 
-    return () => {
-      clearInterval(countdownTimer);
-      clearInterval(checkTimer);
-    };
+    return () => clearInterval(timer);
   }, [movies]);
 
   // Handle adding a new movie tracker
@@ -580,7 +587,20 @@ export default function TrackerDashboard() {
     return new Date(iso).toLocaleDateString();
   };
 
+  const getMovieRemainingSeconds = (m) => {
+    const interval = m.intervalMinutes !== undefined ? m.intervalMinutes : 15;
+    if (interval <= 0) return null; // manual / disabled
+    const refTime = m.lastCheckTime
+      ? new Date(m.lastCheckTime).getTime()
+      : (m.addedAt ? new Date(m.addedAt).getTime() : now);
+
+    if (isNaN(refTime)) return 0;
+    const target = refTime + interval * 60 * 1000;
+    return Math.max(0, Math.floor((target - now) / 1000));
+  };
+
   const formatCountdown = (secs) => {
+    if (secs === null || secs === undefined) return '--';
     const m = Math.floor(secs / 60);
     const s = secs % 60;
     return `${m}m ${s < 10 ? '0' : ''}${s}s`;
@@ -810,14 +830,6 @@ export default function TrackerDashboard() {
             </div>
 
             <div className="flex items-center gap-3">
-              {intervalMinutes > 0 && (
-                <div className="text-xs text-slate-400 hidden sm:flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>Next check:</span>
-                  <span className="font-mono text-white font-bold">{formatCountdown(countdownSeconds)}</span>
-                </div>
-              )}
-
               <button
                 onClick={() => handleCheckAllMovies()}
                 disabled={checkingAll}
@@ -835,6 +847,7 @@ export default function TrackerDashboard() {
               const isLive = m.lastStatus === 'LIVE';
               const isListed = m.lastStatus === 'LISTED_COMING_SOON';
               const isCheckingThis = checkingMovieId === m.id;
+              const remSecs = getMovieRemainingSeconds(m);
               const placeObj = POPULAR_PLACES.find((p) => p.slug === (m.region || 'karwar')) || {
                 name: (m.region || 'karwar').toUpperCase(),
                 cinema: 'Local Multiplexes',
@@ -915,7 +928,7 @@ export default function TrackerDashboard() {
                   {/* Bottom Row: Metadata & Actions */}
                   <div className="pt-3 border-t border-slate-800/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
                     {/* Meta Info */}
-                    <div className="flex items-center gap-4 text-slate-400 font-mono text-[11px]">
+                    <div className="flex items-center gap-3 sm:gap-4 flex-wrap text-slate-400 font-mono text-[11px]">
                       <div>
                         <span className="text-slate-500 uppercase block text-[9px]">PLACE</span>
                         <span className="text-slate-200 font-sans font-semibold">{placeObj.name}</span>
@@ -937,6 +950,29 @@ export default function TrackerDashboard() {
                             ))}
                           </select>
                           <Pencil className="w-2.5 h-2.5 text-slate-400 group-hover:text-amber-400 pointer-events-none absolute right-1.5 transition-colors" />
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 uppercase block text-[9px] mb-0.5">NEXT CHECK</span>
+                        <div className="flex items-center gap-1.5">
+                          {remSecs === null ? (
+                            <span className="text-slate-500 font-sans">Manual</span>
+                          ) : isCheckingThis ? (
+                            <span className="text-indigo-400 font-sans font-bold flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-ping" />
+                              Checking...
+                            </span>
+                          ) : remSecs === 0 ? (
+                            <span className="text-amber-400 font-sans font-bold flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                              Due now
+                            </span>
+                          ) : (
+                            <span className="text-emerald-400 font-bold flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                              {formatCountdown(remSecs)}
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div>

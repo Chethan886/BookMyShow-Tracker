@@ -88,6 +88,13 @@ export default function TrackerDashboard() {
   const [testingDiscord, setTestingDiscord] = useState(false);
   const [feedback, setFeedback] = useState(null);
 
+  // Custom Delete Modal State
+  const [deleteModal, setDeleteModal] = useState({
+    isOpen: false,
+    movie: null,
+    deleting: false,
+  });
+
   // Fetch initial movies & settings
   const fetchInitialData = async () => {
     try {
@@ -744,7 +751,7 @@ export default function TrackerDashboard() {
                       {/* Delete Button */}
                       {movies.length > 1 && (
                         <button
-                          onClick={() => handleDeleteTracker(m.id, m.title)}
+                          onClick={() => promptDeleteTracker(m)}
                           className="p-1.5 rounded-lg hover:bg-rose-500/20 text-slate-500 hover:text-rose-400 transition-colors"
                           title={`Delete "${m.title}"`}
                         >
@@ -759,6 +766,75 @@ export default function TrackerDashboard() {
           </div>
         </div>
       </div>
+      {/* Custom Confirmation Modal */}
+      {deleteModal.isOpen && deleteModal.movie && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeDeleteModal();
+          }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-[#131622] border border-slate-800/90 shadow-2xl p-6 text-center transform transition-all animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header Icon */}
+            <div className="mx-auto w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 mb-4 shadow-lg shadow-rose-500/5">
+              <Trash2 className="w-6 h-6 text-rose-400" />
+            </div>
+
+            {/* Modal Title */}
+            <h3 className="text-base font-bold text-white tracking-tight">
+              Remove Movie Tracker?
+            </h3>
+
+            {/* Modal Description */}
+            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+              Are you sure you want to stop tracking{' '}
+              <span className="font-semibold text-white">
+                "{deleteModal.movie.title}"
+              </span>{' '}
+              in{' '}
+              <span className="font-semibold text-amber-400 uppercase">
+                {deleteModal.movie.region || 'karwar'}
+              </span>
+              ? You will no longer receive availability alerts for this movie.
+            </p>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-3 mt-6">
+              <button
+                type="button"
+                onClick={closeDeleteModal}
+                disabled={deleteModal.deleting}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-300 font-semibold text-xs border border-slate-700/60 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteTracker}
+                disabled={deleteModal.deleting}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors shadow-lg shadow-rose-600/25 flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                {deleteModal.deleting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Removing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Remove</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

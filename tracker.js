@@ -563,11 +563,17 @@ async function verifyMovieLive(movieUrl, region) {
     const html = res && res.data ? (typeof res.data === 'string' ? res.data : JSON.stringify(res.data)) : '';
     if (!html) return false;
 
-    // Check for Book tickets button or active showtimes phase
+    // Check for Book tickets button or active showtimes phase or booking links
     const hasBookBtn =
-      /book\s*tickets?|buy\s*tickets?|data-phase=["']postRelease["']|\/buytickets\//i.test(html);
-    console.log(`[LIVE_VERIFY] Result for ${movieUrl}: hasBookBtn=${hasBookBtn}`);
-    return hasBookBtn;
+      /book\s*tickets?|buy\s*tickets?|data-phase=["']postRelease["']|\/buytickets\/|booktickets|gettickets|advance\s*booking/i.test(html);
+
+    // Also check JSON-LD for the movie page having "offers" (booking available)
+    const hasOffers = /"@type"\s*:\s*"Movie"[\s\S]{0,2000}"offers"/i.test(html) ||
+      /"availability"\s*:\s*"https:\/\/schema\.org\/InStock"/i.test(html);
+
+    const isLive = hasBookBtn || hasOffers;
+    console.log(`[LIVE_VERIFY] Result for ${movieUrl}: hasBookBtn=${hasBookBtn}, hasOffers=${hasOffers}, isLive=${isLive}`);
+    return isLive;
   } catch (err) {
     console.warn(`[LIVE_VERIFY] Could not verify movie page: ${err.message}`);
     return false;
@@ -596,7 +602,10 @@ function parseJsonLd(html, matcher, pageUrl, region) {
               matches.push({
                 title: name,
                 bookingUrl: fullUrl || pageUrl,
-                isBookable: Boolean(isNowShowing || (url && url.includes('/buytickets/'))),
+                // Don't assume bookable just because it's on the explore page.
+                // Only mark bookable if the URL contains /buytickets/ explicitly.
+                // Live verification (verifyMovieLive) will do the actual check.
+                isBookable: Boolean(url && url.includes('/buytickets/')),
                 isNowShowing,
                 source: 'JSON_LD',
               });
@@ -883,14 +892,15 @@ async function checkMovieAvailability(movieInput, preloadedData = null, override
 
       console.log(`[DETECTION] JSON-LD Match for "${matcher.title}" in ${page.name}: "${result.movieTitle}"`);
 
-      // Verify if tickets are live on the movie page
+      // Always verify live status via direct movie page (most reliable signal)
       const liveVerified = await verifyMovieLive(candidate.bookingUrl, effectiveRegion);
-      if (liveVerified || isNowShowingPage) {
+      if (liveVerified) {
         result.isLive = true;
-        result.strategyUsed = liveVerified ? 'JSON_LD+LIVE_VERIFIED' : 'JSON_LD_NOW_SHOWING';
-        console.log(`[DETECTION] Confirmed LIVE for "${result.movieTitle}" via ${result.strategyUsed}`);
+        result.strategyUsed = 'JSON_LD+LIVE_VERIFIED';
+        console.log(`[DETECTION] Confirmed LIVE for "${result.movieTitle}" via JSON_LD+LIVE_VERIFIED`);
         return result;
       }
+      // Found on listing but not live — keep isFound=true, continue to check other pages
     }
 
     // Layer 2: Next.js JSON Extraction
@@ -920,12 +930,12 @@ async function checkMovieAvailability(movieInput, preloadedData = null, override
 
       console.log(`[DETECTION] DOM Match for "${matcher.title}" in ${page.name}: "${result.movieTitle}" (URL: ${result.bookingUrl})`);
 
-      // Verify live tickets if found on Now Showing page or if it has a movie details URL
+      // Verify live tickets if it has a movie details URL (regardless of which page)
       const isMovieUrl = candidate.bookingUrl && (candidate.bookingUrl.includes('/movies/') || candidate.bookingUrl.includes('/buytickets/'));
       if (candidate.isBookable) {
         result.isLive = true;
         return result;
-      } else if (isNowShowingPage && isMovieUrl) {
+      } else if (isMovieUrl) {
         const liveVerified = await verifyMovieLive(candidate.bookingUrl, effectiveRegion);
         if (liveVerified) {
           result.isLive = true;
@@ -959,9 +969,11 @@ async function checkAllMovies(moviesList = null, options = {}) {
   const state = loadState();
   const moviesToCheck = moviesList || state.movies || [];
   const defaultRegion = (options.region || state.settings?.region || CONFIG.region || 'karwar').toLowerCase();
+  // Re-alert threshold in hours (default 2h — won't spam but will re-notify if tab was closed)
+  const reAlertAfterHours = options.forceAlertAfterHours !== undefined ? options.forceAlertAfterHours : 2;
 
   console.log(`\n=======================================================`);
-  console.log(`ðŸŽ¬ Checking ${moviesToCheck.length} Movie(s) in BookMyShow [Region: ${defaultRegion.toUpperCase()}]`);
+  console.log(`🎬 Checking ${moviesToCheck.length} Movie(s) in BookMyShow`);
   console.log(`=======================================================`);
 
   // Group movies by their target region to fetch pages once per distinct region
@@ -974,6 +986,7 @@ async function checkAllMovies(moviesList = null, options = {}) {
 
   const results = [];
   const nowIso = new Date().toISOString();
+  const nowMs = Date.now();
 
   for (const [regionSlug, movieList] of Object.entries(moviesByRegion)) {
     const preloaded = await fetchRegionPages(regionSlug, Boolean(options.forceFresh));
@@ -982,10 +995,12 @@ async function checkAllMovies(moviesList = null, options = {}) {
       const res = await checkMovieAvailability(m, preloaded, regionSlug);
       results.push(res);
 
+      // Find the canonical state entry (match by id or title+region)
       const movieEntry = state.movies.find(
         item => item.id === m.id ||
         (item.title.toLowerCase() === m.title.toLowerCase() && (item.region || '').toLowerCase() === regionSlug.toLowerCase())
       );
+
       if (movieEntry) {
         movieEntry.lastCheckTime = nowIso;
         movieEntry.detectedTitle = res.movieTitle;
@@ -994,22 +1009,30 @@ async function checkAllMovies(moviesList = null, options = {}) {
 
         if (res.isLive) {
           movieEntry.lastStatus = 'LIVE';
-          if (!movieEntry.alertSent || CONFIG.forceAlert) {
-            if (options.sendAlerts !== false) {
-              console.log(`[ALERT] ðŸš¨ Live tickets detected for "${movieEntry.title}" in ${regionSlug.toUpperCase()}! Sending Discord alert...`);
-              const sent = await sendTicketsLiveAlert(res);
-              if (sent) {
-                movieEntry.alertSent = true;
-                movieEntry.lastAlertSentTime = nowIso;
-              }
+
+          const lastAlertMs = movieEntry.lastAlertSentTime ? new Date(movieEntry.lastAlertSentTime).getTime() : 0;
+          const hoursSinceAlert = (nowMs - lastAlertMs) / (1000 * 60 * 60);
+          const shouldAlert = !movieEntry.alertSent || CONFIG.forceAlert || hoursSinceAlert >= reAlertAfterHours;
+
+          if (shouldAlert && options.sendAlerts !== false) {
+            console.log(`[ALERT] 🚨 Live tickets for "${movieEntry.title}" in ${regionSlug.toUpperCase()}! Sending Discord alert...`);
+            const sent = await sendTicketsLiveAlert(res);
+            if (sent) {
+              movieEntry.alertSent = true;
+              movieEntry.lastAlertSentTime = nowIso;
             }
           } else {
-            console.log(`[ALERT] "${movieEntry.title}" is LIVE, but alert was already sent previously.`);
+            console.log(`[ALERT] "${movieEntry.title}" is LIVE but alert sent ${hoursSinceAlert.toFixed(1)}h ago — skipping duplicate.`);
           }
         } else if (res.isFound) {
           movieEntry.lastStatus = 'LISTED_COMING_SOON';
         } else {
           movieEntry.lastStatus = 'NOT_YET_LISTED';
+          // Reset alertSent if movie is no longer found (so we can re-alert when it comes back)
+          if (movieEntry.alertSent) {
+            console.log(`[ALERT] "${movieEntry.title}" no longer found — resetting alertSent for future re-notification.`);
+            movieEntry.alertSent = false;
+          }
         }
       }
     }

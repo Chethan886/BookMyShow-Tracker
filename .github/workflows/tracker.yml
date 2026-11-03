@@ -1,9 +1,9 @@
-name: BookMyShow Karwar Ticket Tracker
+name: BookMyShow Ticket Tracker
 
 on:
-  # Scheduled cron execution (runs every 15 minutes)
+  # Scheduled cron execution (runs every 5 minutes — GitHub minimum)
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/5 * * * *'
 
   # Manual trigger with options for testing and forcing alerts
   workflow_dispatch:
@@ -32,7 +32,7 @@ jobs:
   track-tickets:
     name: Check Ticket Availability
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 8
 
     steps:
       - name: Checkout repository

@@ -18,10 +18,10 @@
       "intervalMinutes": 15,
       "checkIntervalMinutes": 15,
       "alertSent": false,
-      "lastCheckTime": "2026-10-30T09:27:31.469Z",
-      "lastStatus": "LISTED_COMING_SOON",
-      "detectedTitle": "Namit Malhotra's Ramayana",
-      "bookingUrl": "https://in.bookmyshow.com/namit-malhotras-ramayana",
+      "lastCheckTime": null,
+      "lastStatus": "NOT_YET_LISTED",
+      "detectedTitle": null,
+      "bookingUrl": "https://in.bookmyshow.com/explore/movies-karwar",
       "theaters": [
         "Miraj Cinemas: Geetanjali, Karwar"
       ],
@@ -30,10 +30,10 @@
     }
   ],
   "alertSent": false,
-  "lastCheckTime": "2026-10-30T09:27:31.469Z",
-  "lastStatus": "LISTED_COMING_SOON",
-  "detectedTitle": "Namit Malhotra's Ramayana",
-  "bookingUrl": "https://in.bookmyshow.com/namit-malhotras-ramayana",
+  "lastCheckTime": null,
+  "lastStatus": "NOT_YET_LISTED",
+  "detectedTitle": null,
+  "bookingUrl": "https://in.bookmyshow.com/explore/movies-karwar",
   "theaters": [
     "Miraj Cinemas: Geetanjali, Karwar"
   ],

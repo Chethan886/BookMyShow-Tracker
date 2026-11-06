@@ -20,6 +20,9 @@ import {
   Ticket,
   X,
   Pencil,
+  RotateCcw,
+  ChevronRight,
+  Archive,
 } from 'lucide-react';
 
 // Preset popular places on BookMyShow
@@ -101,6 +104,12 @@ export default function TrackerDashboard() {
     movie: null,
     deleting: false,
   });
+
+  // Trash / Deleted Items State
+  const [trashedMovies, setTrashedMovies] = useState([]);
+  const [showTrash, setShowTrash] = useState(false);
+  const [permDeleteModal, setPermDeleteModal] = useState({ isOpen: false, movie: null });
+  const [clearTrashModal, setClearTrashModal] = useState(false);
 
   // Fetch initial movies & settings
   const fetchInitialData = async () => {
@@ -188,6 +197,11 @@ export default function TrackerDashboard() {
 
   useEffect(() => {
     fetchInitialData();
+    // Also load trashed movies from localStorage on mount
+    try {
+      const cached = localStorage.getItem('bms_trash_movies');
+      if (cached) setTrashedMovies(JSON.parse(cached));
+    } catch {}
   }, []);
 
   // Independent Per-Movie Auto-Check & 1-Second Live Countdown Loop
@@ -309,8 +323,16 @@ export default function TrackerDashboard() {
   const confirmDeleteTracker = async () => {
     if (!deleteModal.movie) return;
     const { id, title } = deleteModal.movie;
+    const movieToTrash = { ...deleteModal.movie, deletedAt: new Date().toISOString() };
 
-    // Immediately remove from client UI state and persist deletion
+    // Move to trash immediately
+    setTrashedMovies((prev) => {
+      const next = [movieToTrash, ...prev.filter((m) => m.id !== id)];
+      try { localStorage.setItem('bms_trash_movies', JSON.stringify(next)); } catch {}
+      return next;
+    });
+
+    // Remove from active list and persist deleted IDs
     setMovies((prev) => {
       const next = prev.filter((m) => m.id !== id);
       try {
@@ -330,8 +352,8 @@ export default function TrackerDashboard() {
 
     setFeedback({
       type: 'info',
-      title: 'Tracker Removed',
-      msg: `"${title}" is no longer being tracked.`,
+      title: 'Moved to Trash',
+      msg: `"${title}" moved to Deleted Items. You can restore it anytime.`,
     });
 
     try {
@@ -341,7 +363,67 @@ export default function TrackerDashboard() {
       console.warn('Backend delete notification non-fatal:', err.message);
     } finally {
       setDeleteModal({ isOpen: false, movie: null, deleting: false });
+      setShowTrash(true); // Auto-open trash panel so user can see it
     }
+  };
+
+  // Restore a movie from trash back to active
+  const handleRestoreMovie = (movie) => {
+    const { deletedAt, ...restored } = movie;
+    // Remove from trash
+    setTrashedMovies((prev) => {
+      const next = prev.filter((m) => m.id !== movie.id);
+      try { localStorage.setItem('bms_trash_movies', JSON.stringify(next)); } catch {}
+      return next;
+    });
+    // Remove from deleted IDs so it won't be filtered out on refresh
+    try {
+      const cached = localStorage.getItem('bms_deleted_movies');
+      if (cached) {
+        const updated = JSON.parse(cached).filter((id) => id !== movie.id);
+        localStorage.setItem('bms_deleted_movies', JSON.stringify(updated));
+      }
+    } catch {}
+    // Add back to active movies
+    setMovies((prev) => {
+      const alreadyExists = prev.some((m) => m.id === restored.id);
+      if (alreadyExists) return prev;
+      const next = [...prev, { ...restored, lastStatus: restored.lastStatus || 'NOT_YET_LISTED' }];
+      try { localStorage.setItem('bms_tracked_movies', JSON.stringify(next)); } catch {}
+      return next;
+    });
+    setFeedback({
+      type: 'success',
+      title: 'Tracker Restored',
+      msg: `"${movie.title}" has been restored to active trackers.`,
+    });
+  };
+
+  // Permanently delete a single movie from trash
+  const handlePermDelete = (movie) => {
+    setPermDeleteModal({ isOpen: false, movie: null });
+    setTrashedMovies((prev) => {
+      const next = prev.filter((m) => m.id !== movie.id);
+      try { localStorage.setItem('bms_trash_movies', JSON.stringify(next)); } catch {}
+      return next;
+    });
+    setFeedback({
+      type: 'info',
+      title: 'Permanently Deleted',
+      msg: `"${movie.title}" has been permanently removed.`,
+    });
+  };
+
+  // Clear entire trash
+  const handleClearTrash = () => {
+    setClearTrashModal(false);
+    setTrashedMovies([]);
+    try { localStorage.setItem('bms_trash_movies', JSON.stringify([])); } catch {}
+    setFeedback({
+      type: 'info',
+      title: 'Trash Cleared',
+      msg: 'All deleted items have been permanently removed.',
+    });
   };
 
   // Compatibility fallback
@@ -1011,25 +1093,100 @@ export default function TrackerDashboard() {
                         </a>
                       )}
 
-                      {/* Delete Button */}
-                      {movies.length > 1 && (
-                        <button
-                          onClick={() => promptDeleteTracker(m)}
-                          className="p-1.5 rounded-lg hover:bg-rose-500/20 text-slate-500 hover:text-rose-400 transition-colors"
-                          title={`Delete "${m.title}"`}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
+                      {/* Delete Button — always visible */}
+                      <button
+                        onClick={() => promptDeleteTracker(m)}
+                        className="p-1.5 rounded-lg hover:bg-rose-500/20 text-slate-500 hover:text-rose-400 transition-colors"
+                        title={`Move "${m.title}" to Trash`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 </div>
               );
             })}
           </div>
+
+          {/* ======= DELETED ITEMS / TRASH PANEL ======= */}
+          {trashedMovies.length > 0 && (
+            <div className="mt-4">
+              <button
+                onClick={() => setShowTrash((v) => !v)}
+                className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-slate-900/60 border border-slate-800/60 hover:border-slate-700 text-slate-400 hover:text-slate-200 transition-colors text-xs font-semibold uppercase tracking-wider"
+              >
+                <div className="flex items-center gap-2">
+                  <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Deleted Items</span>
+                  <span className="px-1.5 py-0.5 rounded-full bg-rose-500/20 text-rose-400 text-[10px] font-bold border border-rose-500/30">
+                    {trashedMovies.length}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); setClearTrashModal(true); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); setClearTrashModal(true); } }}
+                    className="px-2 py-0.5 rounded-lg text-[10px] text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 hover:border-rose-500/40 transition-colors font-semibold cursor-pointer"
+                  >
+                    Clear All
+                  </span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showTrash ? 'rotate-180' : ''}`} />
+                </div>
+              </button>
+
+              {showTrash && (
+                <div className="mt-2 space-y-2">
+                  {trashedMovies.map((m) => {
+                    const placeObj = POPULAR_PLACES.find((p) => p.slug === (m.region || 'karwar')) || {
+                      name: (m.region || 'karwar').toUpperCase(),
+                    };
+                    const deletedAgo = m.deletedAt ? formatTimeAgo(m.deletedAt) : 'some time ago';
+                    return (
+                      <div
+                        key={m.id}
+                        className="rounded-xl px-4 py-3 bg-slate-900/50 border border-slate-800/50 flex items-center justify-between gap-3 opacity-70 hover:opacity-90 transition-opacity"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-slate-800 text-slate-400 border border-slate-700/40">
+                              {placeObj.name}
+                            </span>
+                            <span className="text-sm font-bold text-slate-300 truncate">{m.title}</span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 mt-0.5">
+                            Deleted {deletedAgo} · {m.keywords?.join(', ') || m.title}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            onClick={() => handleRestoreMovie(m)}
+                            className="px-2.5 py-1.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/30 text-indigo-400 border border-indigo-500/25 text-[10px] font-bold flex items-center gap-1 transition-colors"
+                            title="Restore to active trackers"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                            Restore
+                          </button>
+                          <button
+                            onClick={() => setPermDeleteModal({ isOpen: true, movie: m })}
+                            className="p-1.5 rounded-lg hover:bg-rose-500/20 text-slate-600 hover:text-rose-400 transition-colors"
+                            title="Permanently delete"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
-      {/* Custom Confirmation Modal */}
+
+      {/* ======= MOVE TO TRASH CONFIRMATION MODAL ======= */}
       {deleteModal.isOpen && deleteModal.movie && (
         <div
           role="dialog"
@@ -1050,12 +1207,12 @@ export default function TrackerDashboard() {
 
             {/* Modal Title */}
             <h3 className="text-base font-bold text-white tracking-tight">
-              Remove Movie Tracker?
+              Move to Deleted Items?
             </h3>
 
             {/* Modal Description */}
             <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-              Are you sure you want to stop tracking{' '}
+              Stop tracking{' '}
               <span className="font-semibold text-white">
                 "{deleteModal.movie.title}"
               </span>{' '}
@@ -1063,7 +1220,7 @@ export default function TrackerDashboard() {
               <span className="font-semibold text-amber-400 uppercase">
                 {deleteModal.movie.region || 'karwar'}
               </span>
-              ? You will no longer receive availability alerts for this movie.
+              ? It will be moved to <span className="text-indigo-400 font-semibold">Deleted Items</span> where you can restore it anytime.
             </p>
 
             {/* Action Buttons */}
@@ -1085,14 +1242,92 @@ export default function TrackerDashboard() {
                 {deleteModal.deleting ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Removing...</span>
+                    <span>Moving...</span>
                   </>
                 ) : (
                   <>
                     <Trash2 className="w-3.5 h-3.5" />
-                    <span>Remove</span>
+                    <span>Move to Trash</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======= PERMANENT DELETE MODAL ======= */}
+      {permDeleteModal.isOpen && permDeleteModal.movie && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={(e) => { if (e.target === e.currentTarget) setPermDeleteModal({ isOpen: false, movie: null }); }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-[#131622] border border-rose-900/60 shadow-2xl p-6 text-center animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center mb-4">
+              <Trash2 className="w-6 h-6 text-rose-500" />
+            </div>
+            <h3 className="text-base font-bold text-white tracking-tight">Permanently Delete?</h3>
+            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+              <span className="font-semibold text-white">"{permDeleteModal.movie.title}"</span> will be{' '}
+              <span className="text-rose-400 font-semibold">permanently deleted</span> and cannot be recovered.
+            </p>
+            <div className="flex items-center gap-3 mt-6">
+              <button
+                onClick={() => setPermDeleteModal({ isOpen: false, movie: null })}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-300 font-semibold text-xs border border-slate-700/60 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handlePermDelete(permDeleteModal.movie)}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-rose-700 hover:bg-rose-600 text-white font-bold text-xs transition-colors shadow-lg shadow-rose-700/30 flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete Forever
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======= CLEAR ALL TRASH MODAL ======= */}
+      {clearTrashModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={(e) => { if (e.target === e.currentTarget) setClearTrashModal(false); }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-[#131622] border border-rose-900/60 shadow-2xl p-6 text-center animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center mb-4">
+              <Trash2 className="w-6 h-6 text-rose-500" />
+            </div>
+            <h3 className="text-base font-bold text-white tracking-tight">Clear Deleted Items?</h3>
+            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+              All <span className="font-semibold text-rose-400">{trashedMovies.length} deleted item{trashedMovies.length !== 1 ? 's' : ''}</span> will be{' '}
+              <span className="text-rose-400 font-semibold">permanently removed</span> and cannot be recovered.
+            </p>
+            <div className="flex items-center gap-3 mt-6">
+              <button
+                onClick={() => setClearTrashModal(false)}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-300 font-semibold text-xs border border-slate-700/60 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleClearTrash}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-rose-700 hover:bg-rose-600 text-white font-bold text-xs transition-colors shadow-lg shadow-rose-700/30 flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Clear All
               </button>
             </div>
           </div>

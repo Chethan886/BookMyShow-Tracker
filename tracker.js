@@ -470,8 +470,17 @@ function getMovieMatcher(movieInput) {
   } else if (movieInput.regex instanceof RegExp) {
     regex = movieInput.regex;
   } else {
-    const escapedTerms = keywords.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    regex = new RegExp(`\\b(${escapedTerms.join('|')})\\b`, 'i');
+    // Only use keywords >= 4 chars in the regex to avoid overly broad matches
+    // e.g. "zero", "0", "in" would otherwise match unrelated movies/URLs
+    const meaningfulTerms = keywords.filter(t => t.length >= 4);
+    if (meaningfulTerms.length === 0) {
+      // Fallback: use the full title even if short
+      const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      regex = new RegExp(`\\b(${escapedTitle})\\b`, 'i');
+    } else {
+      const escapedTerms = meaningfulTerms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      regex = new RegExp(`\\b(${escapedTerms.join('|')})\\b`, 'i');
+    }
   }
 
   return { id, title, region, keywords, regex };
@@ -483,7 +492,11 @@ function isTitleMatch(text, matcher) {
   const m = matcher || { regex: CONFIG.defaultRegex, keywords: CONFIG.defaultKeywords };
   if (m.regex && m.regex.test(clean)) return true;
   const lower = clean.toLowerCase();
-  return m.keywords.some(kw => lower.includes(kw));
+  // Skip keywords shorter than 4 characters — too generic (e.g. "0", "1", "in", "of")
+  // These can cause false positives by matching unrelated content.
+  return m.keywords
+    .filter(kw => kw.length >= 4)
+    .some(kw => lower.includes(kw));
 }
 
 function searchNextDataForMovie(obj, matcher, matches = []) {
@@ -555,13 +568,33 @@ function parseNextData(html, matcher) {
 }
 
 
-async function verifyMovieLive(movieUrl, region) {
+async function verifyMovieLive(movieUrl, region, expectedMatcher = null) {
   if (!movieUrl || !movieUrl.startsWith('http')) return false;
   try {
     console.log(`[LIVE_VERIFY] Checking direct movie page for booking availability: ${movieUrl}`);
     const res = await curlFetch(movieUrl, region);
     const html = res && res.data ? (typeof res.data === 'string' ? res.data : JSON.stringify(res.data)) : '';
     if (!html) return false;
+
+    // ── CRITICAL: Cross-validate the page title matches our expected movie ──
+    // This prevents false positives where we follow a URL for a different movie
+    // (e.g., scraper matched keyword "zero" and found "Scene" movie URL which IS live)
+    if (expectedMatcher) {
+      const pageTitle = html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1] || '';
+      // Also check OG title and h1 for reliability
+      const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1] || '';
+      const h1Text = html.match(/<h1[^>]*>([^<]+)<\/h1>/i)?.[1] || '';
+      const checkTitles = [pageTitle, ogTitle, h1Text].filter(Boolean);
+
+      const titleMatches = checkTitles.some(t => isTitleMatch(t, expectedMatcher));
+      if (!titleMatches && checkTitles.length > 0) {
+        console.warn(`[LIVE_VERIFY] ⚠️  FALSE POSITIVE PREVENTED: URL "${movieUrl}" page title "${pageTitle || ogTitle}" does NOT match expected "${expectedMatcher.title}" — skipping!`);
+        return false;
+      }
+      if (checkTitles.length > 0) {
+        console.log(`[LIVE_VERIFY] ✅ Title cross-check passed: "${pageTitle || ogTitle}" matches "${expectedMatcher.title}"`);
+      }
+    }
 
     // Check for Book tickets button or active showtimes phase or booking links
     const hasBookBtn =
@@ -622,6 +655,9 @@ function parseJsonLd(html, matcher, pageUrl, region) {
 
 function parseDomForMovie(html, pageUrl, matcher) {
   const matches = [];
+  // Keywords that are meaningful enough to trust in URL slug matching (>= 4 chars)
+  const meaningfulKeywords = matcher.keywords.filter(k => k.length >= 4);
+
   try {
     const $ = cheerio.load(html);
 
@@ -630,9 +666,16 @@ function parseDomForMovie(html, pageUrl, matcher) {
       const href = $(elem).attr('href') || '';
       const ariaLabel = $(elem).attr('aria-label') || '';
 
-      const matchedText = isTitleMatch(text, matcher)
-        ? text
-        : (isTitleMatch(ariaLabel, matcher) ? ariaLabel : (isTitleMatch(href, matcher) ? href : null));
+      // Determine what matched: prefer text/aria matches over href-only matches
+      const textMatches = isTitleMatch(text, matcher);
+      const ariaMatches = !textMatches && isTitleMatch(ariaLabel, matcher);
+      // For href matches, only use meaningful keywords (>= 4 chars) to prevent
+      // false positives from short keyword segments like "0", "in", etc.
+      const hrefMatchedBySlug = !textMatches && !ariaMatches && meaningfulKeywords.some(kw =>
+        href.toLowerCase().includes(kw.replace(/\s+/g, '-')) || href.toLowerCase().includes(kw.replace(/\s+/g, ''))
+      );
+
+      const matchedText = textMatches ? text : (ariaMatches ? ariaLabel : (hrefMatchedBySlug ? href : null));
 
       if (matchedText) {
         let fullUrl = href;
@@ -892,15 +935,15 @@ async function checkMovieAvailability(movieInput, preloadedData = null, override
 
       console.log(`[DETECTION] JSON-LD Match for "${matcher.title}" in ${page.name}: "${result.movieTitle}"`);
 
-      // Always verify live status via direct movie page (most reliable signal)
-      const liveVerified = await verifyMovieLive(candidate.bookingUrl, effectiveRegion);
+      // Always verify live status via direct movie page WITH title cross-check (most reliable signal)
+      const liveVerified = await verifyMovieLive(candidate.bookingUrl, effectiveRegion, matcher);
       if (liveVerified) {
         result.isLive = true;
         result.strategyUsed = 'JSON_LD+LIVE_VERIFIED';
         console.log(`[DETECTION] Confirmed LIVE for "${result.movieTitle}" via JSON_LD+LIVE_VERIFIED`);
         return result;
       }
-      // Found on listing but not live — keep isFound=true, continue to check other pages
+      // Found on listing but not live (or title mismatch) — keep isFound=true, continue
     }
 
     // Layer 2: Next.js JSON Extraction
@@ -930,13 +973,21 @@ async function checkMovieAvailability(movieInput, preloadedData = null, override
 
       console.log(`[DETECTION] DOM Match for "${matcher.title}" in ${page.name}: "${result.movieTitle}" (URL: ${result.bookingUrl})`);
 
-      // Verify live tickets if it has a movie details URL (regardless of which page)
+      // Verify live tickets via direct page check WITH title cross-validation
       const isMovieUrl = candidate.bookingUrl && (candidate.bookingUrl.includes('/movies/') || candidate.bookingUrl.includes('/buytickets/'));
-      if (candidate.isBookable) {
-        result.isLive = true;
-        return result;
+      if (candidate.isBookable && isMovieUrl) {
+        // Even if DOM says "bookable", always cross-validate the page title to prevent false positives
+        const liveVerified = await verifyMovieLive(candidate.bookingUrl, effectiveRegion, matcher);
+        if (liveVerified) {
+          result.isLive = true;
+          result.strategyUsed = 'DOM+LIVE_VERIFIED';
+          console.log(`[DETECTION] Confirmed LIVE for "${result.movieTitle}" via DOM+LIVE_VERIFIED`);
+          return result;
+        } else {
+          console.warn(`[DETECTION] DOM said bookable but title cross-check failed for "${candidate.bookingUrl}" — false positive blocked`);
+        }
       } else if (isMovieUrl) {
-        const liveVerified = await verifyMovieLive(candidate.bookingUrl, effectiveRegion);
+        const liveVerified = await verifyMovieLive(candidate.bookingUrl, effectiveRegion, matcher);
         if (liveVerified) {
           result.isLive = true;
           result.strategyUsed = 'DOM+LIVE_VERIFIED';

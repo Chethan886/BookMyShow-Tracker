@@ -248,13 +248,30 @@ export default function TrackerDashboard() {
       setAddingMovie(true);
       setFeedback(null);
 
+      // Sanitize keywords: strip overly short/generic terms (< 4 chars) that
+      // cause false positives — e.g. "0", "in", "of" match unrelated movies.
+      let sanitizedKeywords = formKeywords.trim();
+      if (sanitizedKeywords) {
+        const rawKws = sanitizedKeywords.split(',').map(k => k.trim()).filter(Boolean);
+        const stripped = rawKws.filter(k => k.length < 4);
+        const kept = rawKws.filter(k => k.length >= 4);
+        // Always keep the full title even if it's short
+        if (!kept.some(k => k.toLowerCase() === formTitle.trim().toLowerCase())) {
+          kept.unshift(formTitle.trim());
+        }
+        sanitizedKeywords = kept.join(', ');
+        if (stripped.length > 0) {
+          console.warn(`[TRACKER] Stripped short/generic keywords: ${stripped.join(', ')} — these could cause false positives`);
+        }
+      }
+
       const res = await fetch('/api/movies', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: formTitle.trim(),
           region: formRegion,
-          keywords: formKeywords.trim(),
+          keywords: sanitizedKeywords,
           intervalMinutes: formInterval,
         }),
       });
@@ -1005,6 +1022,13 @@ export default function TrackerDashboard() {
                     <p className="text-xs text-slate-400 mt-0.5">
                       Keywords: {m.keywords && m.keywords.length > 0 ? m.keywords.join(', ') : m.title}
                     </p>
+                    {/* Detected title mismatch warning — surfaces false positives to user */}
+                    {m.detectedTitle && m.detectedTitle.toLowerCase() !== m.title.toLowerCase() && (
+                      <p className="text-xs mt-1 flex items-center gap-1 text-amber-400">
+                        <span>⚠️</span>
+                        <span>Last detected as: <strong>&quot;{m.detectedTitle}&quot;</strong> — verify this is correct</span>
+                      </p>
+                    )}
                   </div>
 
                   {/* Bottom Row: Metadata & Actions */}

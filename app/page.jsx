@@ -455,7 +455,9 @@ export default function TrackerDashboard() {
       setCheckingMovieId(movie.id);
       setFeedback(null);
 
-      const res = await fetch('/api/track', {
+      // Use /api/check which tries BMS JSON API first (axios-only, works on Vercel)
+      // then falls back to full tracker pipeline if needed.
+      const res = await fetch('/api/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -1,1 +1,28 @@
-[]
+[
+  {
+    "id": "godzilla-minus-zero-bengaluru",
+    "title": "Godzilla minus zero",
+    "region": "bengaluru",
+    "keywords": [
+      "Godzilla minus zero",
+      "Godzilla",
+      "Minus",
+      "zero",
+      "0"
+    ],
+    "intervalMinutes": 15,
+    "alertSent": false,
+    "lastAlertSentTime": "2026-11-06T10:37:48.966Z"
+  },
+  {
+    "id": "scene-bengaluru",
+    "title": "Scene",
+    "region": "bengaluru",
+    "keywords": [
+      "Scene"
+    ],
+    "intervalMinutes": 2,
+    "alertSent": true,
+    "lastAlertSentTime": "2026-11-13T06:14:55.790Z"
+  }
+]

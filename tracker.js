@@ -238,6 +238,82 @@ function slugify(text) {
 /**
  * Loads persistent state with automatic migration from single-movie to multi-movie schema
  */
+/**
+ * Load movies from tracked-movies.json (the UI-synced persistent list).
+ * This is the source of truth for GitHub Actions — it contains all movies
+ * the user has added via the browser, committed to the repo via /api/sync-movies.
+ */
+function loadTrackedMoviesFile() {
+  const trackedFile = path.join(process.cwd(), 'tracked-movies.json');
+  try {
+    if (fs.existsSync(trackedFile)) {
+      const raw = fs.readFileSync(trackedFile, 'utf8');
+      const movies = JSON.parse(raw);
+      if (Array.isArray(movies) && movies.length > 0) {
+        console.log(`[STATE] Loaded ${movies.length} movie(s) from tracked-movies.json`);
+        return movies;
+      }
+    }
+  } catch (err) {
+    console.warn(`[STATE] Could not read tracked-movies.json:`, err.message);
+  }
+  return null;
+}
+
+function saveTrackedMoviesFile(movies) {
+  const trackedFile = path.join(process.cwd(), 'tracked-movies.json');
+  try {
+    const clean = movies.map(m => ({
+      id: m.id,
+      title: m.title,
+      region: m.region || 'karwar',
+      keywords: Array.isArray(m.keywords) ? m.keywords : [m.title],
+      intervalMinutes: m.intervalMinutes || 15,
+      alertSent: m.alertSent || false,
+      lastAlertSentTime: m.lastAlertSentTime || null,
+    }));
+    fs.writeFileSync(trackedFile, JSON.stringify(clean, null, 2) + '\n', 'utf8');
+    console.log(`[STATE] Saved ${clean.length} movie(s) to tracked-movies.json`);
+  } catch (err) {
+    console.warn(`[STATE] Could not write tracked-movies.json:`, err.message);
+  }
+}
+
+/**
+ * Merge two movie lists, deduplicating by id.
+ * tracked-movies.json entries are authoritative for title/keywords/region;
+ * state.json entries carry live runtime data (lastCheckTime, alertSent, etc.)
+ */
+function mergeMovieLists(stateMo, trackedMo) {
+  const merged = [...stateMo];
+  for (const tm of trackedMo) {
+    const existing = merged.find(m => m.id === tm.id ||
+      (m.title.toLowerCase() === tm.title.toLowerCase() && (m.region || '').toLowerCase() === (tm.region || '').toLowerCase())
+    );
+    if (!existing) {
+      // New movie from tracked-movies.json — add it with defaults
+      merged.push({
+        lastStatus: 'NOT_YET_LISTED',
+        lastCheckTime: null,
+        detectedTitle: null,
+        bookingUrl: getRegionUrls(tm.region || 'karwar').regionHome,
+        theaters: [getDefaultCinemaForRegion(tm.region || 'karwar')],
+        intervalMinutes: tm.intervalMinutes || 15,
+        checkIntervalMinutes: tm.intervalMinutes || 15,
+        addedAt: new Date().toISOString(),
+        ...tm,
+      });
+      console.log(`[STATE] Added new movie from tracked-movies.json: "${tm.title}" [${tm.region}]`);
+    } else {
+      // Update keywords/interval from tracked-movies.json (UI is authoritative for these)
+      existing.keywords = tm.keywords || existing.keywords;
+      existing.intervalMinutes = tm.intervalMinutes || existing.intervalMinutes;
+      existing.title = tm.title || existing.title;
+    }
+  }
+  return merged;
+}
+
 function loadState() {
   const defaultState = {
     settings: {
@@ -258,6 +334,9 @@ function loadState() {
 
   if (!fs.existsSync(CONFIG.stateFile)) {
     saveState(defaultState);
+    // Also merge tracked-movies.json if it exists
+    const tracked = loadTrackedMoviesFile();
+    if (tracked) defaultState.movies = mergeMovieLists(defaultState.movies, tracked);
     return defaultState;
   }
 
@@ -283,6 +362,13 @@ function loadState() {
 
     if (!parsed.movies.length) {
       parsed.movies = [ { ...DEFAULT_RAMAYANA_MOVIE } ];
+    }
+
+    // ── Merge in movies from tracked-movies.json (UI-synced list) ──
+    // This is how GitHub Actions picks up movies added from the browser.
+    const tracked = loadTrackedMoviesFile();
+    if (tracked && tracked.length > 0) {
+      parsed.movies = mergeMovieLists(parsed.movies, tracked);
     }
 
     // Ensure settings exist
@@ -767,16 +853,6 @@ const regionalCache = {};
  */
 async function fetchBmsApiMovies(regionSlug) {
   const r = (regionSlug || CONFIG.region || 'karwar').toLowerCase().trim();
-  const baseParams = new URLSearchParams({
-    appCode: 'MOBAND2',
-    appVersion: '14390',
-    language: 'EN',
-    layoutType: 'MDOT',
-    city: r,
-    homeCityCode: r,
-    limit: '10',
-    totalCount: '10',
-  });
 
   const apiHeaders = {
     'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36',
@@ -791,9 +867,30 @@ async function fetchBmsApiMovies(regionSlug) {
   const results = {};
 
   for (const status of ['nowShowing', 'comingSoon']) {
-    const url = `https://in.bookmyshow.com/api/explore/v1/list/movies?${baseParams.toString()}&status=${status}`;
     try {
-      console.log(`[API] Fetching BMS ${status} API for ${r.toUpperCase()}...`);
+      // First probe to get real totalCount so we fetch ALL movies, not just top 10
+      const probeParams = new URLSearchParams({
+        appCode: 'MOBAND2', appVersion: '14390', language: 'EN',
+        layoutType: 'MDOT', city: r, homeCityCode: r,
+        limit: '1', totalCount: '1', status,
+      });
+      let fetchLimit = 100; // safe large default
+      try {
+        const probeRes = await curlFetch(
+          `https://in.bookmyshow.com/api/explore/v1/list/movies?${probeParams.toString()}`,
+          r, { isJson: true }
+        );
+        const tc = probeRes.data?.BookMyShow?.totalCount || probeRes.data?.totalCount;
+        if (tc && Number(tc) > 0) fetchLimit = Math.min(Number(tc), 200);
+      } catch { /* use default */ }
+
+      const baseParams = new URLSearchParams({
+        appCode: 'MOBAND2', appVersion: '14390', language: 'EN',
+        layoutType: 'MDOT', city: r, homeCityCode: r,
+        limit: String(fetchLimit), totalCount: String(fetchLimit), status,
+      });
+      const url = `https://in.bookmyshow.com/api/explore/v1/list/movies?${baseParams.toString()}`;
+      console.log(`[API] Fetching BMS ${status} API for ${r.toUpperCase()} (limit=${fetchLimit})...`);
       const res = await curlFetch(url, r, { isJson: true });
       results[status] = res.data;
       const count = res.data?.BookMyShow?.arrEvents?.length || res.data?.arrEvents?.length || 0;

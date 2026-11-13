@@ -1,0 +1,12 @@
+[
+  {
+    "id": "ramayana-karwar",
+    "title": "Ramayana",
+    "region": "karwar",
+    "keywords": ["Ramayana", "Ramayana: Part 1", "Ramayan"],
+    "intervalMinutes": 15,
+    "alertSent": false,
+    "lastAlertSentTime": null
+  }
+]
+

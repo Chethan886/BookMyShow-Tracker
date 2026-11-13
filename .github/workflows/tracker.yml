@@ -66,19 +66,32 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Only commit if state.json was modified
+          # Pull latest (tracked-movies.json may have been updated by the UI)
+          git pull --rebase origin main || true
+
+          # Stage state.json and tracked-movies.json if changed
+          CHANGED=0
           if [ -f state.json ]; then
             git add state.json
-            if ! git diff --cached --quiet; then
-              echo "Changes detected in state.json. Committing..."
-              git commit -m "chore(tracker): update ticket state [skip ci]" || true
-              git pull --rebase origin main || true
-              if ! git push origin main; then
-                echo "::warning::Git push failed. Ensure 'Workflow permissions' are set to 'Read and write permissions' in repository Settings -> Actions -> General."
-              else
-                echo "Successfully pushed updated state.json to repository."
-              fi
-            else
-              echo "No state changes to commit."
+            if ! git diff --cached --quiet state.json; then
+              CHANGED=1
             fi
+          fi
+          if [ -f tracked-movies.json ]; then
+            git add tracked-movies.json
+            if ! git diff --cached --quiet tracked-movies.json; then
+              CHANGED=1
+            fi
+          fi
+
+          if [ "$CHANGED" = "1" ]; then
+            echo "Changes detected. Committing..."
+            git commit -m "chore(tracker): update ticket state [skip ci]" || true
+            if ! git push origin main; then
+              echo "::warning::Git push failed. Check 'Workflow permissions' → 'Read and write' in repo Settings → Actions → General."
+            else
+              echo "Successfully pushed state updates."
+            fi
+          else
+            echo "No state changes to commit."
           fi

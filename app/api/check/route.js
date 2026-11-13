@@ -36,19 +36,9 @@ function isTitleMatch(text, keywords) {
 async function checkBmsJsonApi(region, keywords, title) {
   const r = (region || 'karwar').toLowerCase().trim();
   const baseUrl = 'https://in.bookmyshow.com/api/explore/v1/list/movies';
-  const baseParams = {
-    appCode: 'MOBAND2',
-    appVersion: '14390',
-    language: 'EN',
-    layoutType: 'MDOT',
-    city: r,
-    homeCityCode: r,
-    limit: '30',
-    totalCount: '30',
-  };
 
   const allKeywords = Array.isArray(keywords)
-    ? keywords
+    ? [...keywords]
     : (typeof keywords === 'string' ? keywords.split(',').map(k => k.trim()) : [title]);
 
   // Always include the title itself
@@ -58,9 +48,30 @@ async function checkBmsJsonApi(region, keywords, title) {
 
   for (const status of ['nowShowing', 'comingSoon']) {
     try {
-      const params = new URLSearchParams({ ...baseParams, status });
+      // First fetch with limit=1 to get the real totalCount from the API
+      const probeParams = new URLSearchParams({
+        appCode: 'MOBAND2', appVersion: '14390', language: 'EN',
+        layoutType: 'MDOT', city: r, homeCityCode: r,
+        limit: '1', totalCount: '1', status,
+      });
+      let totalCount = 100; // safe default
+      try {
+        const probeRes = await axios.get(`${baseUrl}?${probeParams.toString()}`, {
+          headers: { ...BMS_MOBILE_HEADERS, 'Referer': `https://in.bookmyshow.com/explore/movies-${r}` },
+          timeout: 8000,
+        });
+        const tc = probeRes.data?.BookMyShow?.totalCount || probeRes.data?.totalCount;
+        if (tc && Number(tc) > 0) totalCount = Math.min(Number(tc), 200);
+      } catch { /* use default */ }
+
+      const fetchLimit = String(Math.max(totalCount, 50));
+      const params = new URLSearchParams({
+        appCode: 'MOBAND2', appVersion: '14390', language: 'EN',
+        layoutType: 'MDOT', city: r, homeCityCode: r,
+        limit: fetchLimit, totalCount: fetchLimit, status,
+      });
       const url = `${baseUrl}?${params.toString()}`;
-      console.log(`[API:CHECK] Fetching BMS ${status} JSON API for ${r.toUpperCase()}...`);
+      console.log(`[API:CHECK] Fetching BMS ${status} JSON API for ${r.toUpperCase()} (limit=${fetchLimit})...`);
 
       const res = await axios.get(url, {
         headers: {

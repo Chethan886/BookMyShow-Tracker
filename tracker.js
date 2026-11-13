@@ -322,21 +322,23 @@ function loadState() {
       checkIntervalMinutes: CONFIG.defaultIntervalMinutes,
       discordMention: CONFIG.discordMention,
     },
-    movies: [ { ...DEFAULT_RAMAYANA_MOVIE } ],
+    movies: [],
     alertSent: false,
     lastCheckTime: null,
     lastStatus: 'NOT_RUN_YET',
     detectedTitle: null,
     bookingUrl: null,
-    theaters: [DEFAULT_KARWAR_CINEMA],
+    theaters: [],
     lastAlertSentTime: null,
   };
 
   if (!fs.existsSync(CONFIG.stateFile)) {
     saveState(defaultState);
-    // Also merge tracked-movies.json if it exists
+    // Merge tracked-movies.json if it exists (this is the UI-synced list)
     const tracked = loadTrackedMoviesFile();
-    if (tracked) defaultState.movies = mergeMovieLists(defaultState.movies, tracked);
+    if (tracked && tracked.length > 0) {
+      defaultState.movies = mergeMovieLists(defaultState.movies, tracked);
+    }
     return defaultState;
   }
 
@@ -347,22 +349,20 @@ function loadState() {
     // Migration logic: if old state format (lacking movies array)
     if (!parsed.movies || !Array.isArray(parsed.movies)) {
       const migrated = {
-        ...DEFAULT_RAMAYANA_MOVIE,
         region: parsed.settings?.region || CONFIG.region,
         alertSent: Boolean(parsed.alertSent),
         lastCheckTime: parsed.lastCheckTime || null,
         lastStatus: parsed.lastStatus || 'NOT_YET_LISTED',
         detectedTitle: parsed.detectedTitle || null,
         bookingUrl: parsed.bookingUrl || URLS.regionHome,
-        theaters: parsed.theaters && parsed.theaters.length ? parsed.theaters : [DEFAULT_KARWAR_CINEMA],
+        theaters: parsed.theaters && parsed.theaters.length ? parsed.theaters : [],
         lastAlertSentTime: parsed.lastAlertSentTime || null,
       };
-      parsed.movies = [migrated];
+      parsed.movies = parsed.detectedTitle ? [migrated] : [];
     }
 
-    if (!parsed.movies.length) {
-      parsed.movies = [ { ...DEFAULT_RAMAYANA_MOVIE } ];
-    }
+    // Empty movies list is valid — no more hardcoded defaults.
+    // tracked-movies.json is the sole source of truth for what to track.
 
     // ── Merge in movies from tracked-movies.json (UI-synced list) ──
     // This is how GitHub Actions picks up movies added from the browser.
@@ -378,18 +378,21 @@ function loadState() {
     };
 
     const primary = parsed.movies[0];
-    return {
+    const result = {
       ...defaultState,
       ...parsed,
       settings,
-      alertSent: primary.alertSent,
-      lastCheckTime: primary.lastCheckTime,
-      lastStatus: primary.lastStatus,
-      detectedTitle: primary.detectedTitle,
-      bookingUrl: primary.bookingUrl,
-      theaters: primary.theaters,
-      lastAlertSentTime: primary.lastAlertSentTime,
     };
+    if (primary) {
+      result.alertSent = primary.alertSent;
+      result.lastCheckTime = primary.lastCheckTime;
+      result.lastStatus = primary.lastStatus;
+      result.detectedTitle = primary.detectedTitle;
+      result.bookingUrl = primary.bookingUrl;
+      result.theaters = primary.theaters;
+      result.lastAlertSentTime = primary.lastAlertSentTime;
+    }
+    return result;
   } catch (error) {
     console.warn(`[STATE] Failed to read state file, using defaults:`, error.message);
     return defaultState;

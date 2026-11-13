@@ -12,11 +12,10 @@
       "keywords": [
         "Ramayana",
         "Ramayana: Part 1",
+        "Ramayana - Part 1",
         "Ramayan"
       ],
       "region": "karwar",
-      "intervalMinutes": 15,
-      "checkIntervalMinutes": 15,
       "alertSent": false,
       "lastCheckTime": null,
       "lastStatus": "NOT_YET_LISTED",
@@ -25,17 +24,16 @@
       "theaters": [
         "Miraj Cinemas: Geetanjali, Karwar"
       ],
-      "lastAlertSentTime": null,
-      "addedAt": "2026-10-30T09:26:43.299Z"
+      "lastAlertSentTime": null
     }
   ],
   "alertSent": false,
   "lastCheckTime": null,
   "lastStatus": "NOT_YET_LISTED",
   "detectedTitle": null,
-  "bookingUrl": "https://in.bookmyshow.com/explore/movies-karwar",
+  "bookingUrl": "https://in.bookmyshow.com/explore/movies-bengaluru",
   "theaters": [
-    "Miraj Cinemas: Geetanjali, Karwar"
+    "PVR, INOX, Cinepolis"
   ],
   "lastAlertSentTime": null
 }

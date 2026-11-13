@@ -66,18 +66,7 @@ const INTERVAL_OPTIONS = [
 ];
 
 export default function TrackerDashboard() {
-  const [movies, setMovies] = useState([
-    {
-      id: 'ramayana',
-      title: 'Ramayana',
-      region: 'karwar',
-      keywords: ['Ramayana', 'Ramayana: Part 1', 'Ramayan'],
-      lastStatus: 'NOT_YET_LISTED',
-      lastCheckTime: null,
-      bookingUrl: 'https://in.bookmyshow.com/explore/movies-karwar',
-      theaters: ['Miraj Cinemas: Geetanjali, Karwar'],
-    },
-  ]);
+  const [movies, setMovies] = useState([]);
 
   // Form State for Adding Tracker
   const [formTitle, setFormTitle] = useState('');
@@ -111,6 +100,10 @@ export default function TrackerDashboard() {
   const [showTrash, setShowTrash] = useState(false);
   const [permDeleteModal, setPermDeleteModal] = useState({ isOpen: false, movie: null });
   const [clearTrashModal, setClearTrashModal] = useState(false);
+
+  // GitHub Actions sync state
+  const [ghMovies, setGhMovies] = useState(null); // null = not loaded, [] = loaded but empty
+  const [showGhPanel, setShowGhPanel] = useState(false);
 
   // Fetch initial movies & settings
   const fetchInitialData = async () => {
@@ -193,6 +186,17 @@ export default function TrackerDashboard() {
       } catch {}
     } finally {
       setLoading(false);
+    }
+
+    // Also fetch what GitHub Actions is tracking (async, non-blocking)
+    try {
+      const ghRes = await fetch('/api/sync-movies');
+      const ghData = await ghRes.json();
+      if (ghData.success && Array.isArray(ghData.movies)) {
+        setGhMovies(ghData.movies);
+      }
+    } catch {
+      // Non-critical — just means we can't show GH status
     }
   };
 
@@ -636,6 +640,7 @@ export default function TrackerDashboard() {
       });
       const data = await res.json();
       if (data.success) {
+        setGhMovies(data.movies || movies); // Update GH panel with synced data
         setFeedback({
           type: 'success',
           title: 'Synced to GitHub!',
@@ -1190,6 +1195,78 @@ export default function TrackerDashboard() {
               );
             })}
           </div>
+
+          {/* ======= GITHUB ACTIONS STATUS PANEL ======= */}
+          {ghMovies !== null && (
+            <div className="mt-4">
+              <button
+                onClick={() => setShowGhPanel(!showGhPanel)}
+                className="w-full px-4 py-2.5 rounded-xl bg-slate-900/80 hover:bg-slate-800/80 border border-slate-800/60 text-xs font-semibold text-slate-300 flex items-center justify-between transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <svg className="w-3.5 h-3.5 text-emerald-400" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+                  </svg>
+                  <span>GitHub Actions Tracker</span>
+                  <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold border border-emerald-500/30">
+                    {ghMovies.length}
+                  </span>
+                  <span className="text-slate-500 font-normal ml-1">
+                    {ghMovies.length === 0 ? '— not tracking anything (click Sync to GH to push your movies)' : '— running every 5 min in background'}
+                  </span>
+                </div>
+                <ChevronDown className={`w-3.5 h-3.5 text-slate-500 transition-transform ${showGhPanel ? 'rotate-180' : ''}`} />
+              </button>
+              {showGhPanel && (
+                <div className="mt-2 space-y-2">
+                  {ghMovies.length === 0 ? (
+                    <div className="px-4 py-3 rounded-xl bg-slate-900/50 border border-slate-800/40 text-xs text-slate-400">
+                      No movies in GitHub Actions. Click <strong className="text-emerald-400">Sync to GH</strong> to push your current trackers.
+                    </div>
+                  ) : (
+                    ghMovies.map((gm) => {
+                      const placeObj = POPULAR_PLACES.find((p) => p.slug === (gm.region || '').toLowerCase()) || { name: gm.region || '??', cinema: '' };
+                      const isInUi = movies.some((m) => m.id === gm.id || (m.title?.toLowerCase() === gm.title?.toLowerCase() && (m.region || '') === (gm.region || '')));
+                      const statusColor = gm.lastStatus === 'LIVE' ? 'text-emerald-400' : gm.lastStatus === 'LISTED_COMING_SOON' ? 'text-amber-400' : 'text-slate-500';
+                      const statusLabel = gm.lastStatus === 'LIVE' ? 'LIVE' : gm.lastStatus === 'LISTED_COMING_SOON' ? 'COMING SOON' : 'MONITORING';
+                      return (
+                        <div key={gm.id || gm.title} className="px-4 py-2.5 rounded-xl bg-slate-900/50 border border-slate-800/40 flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span className="px-2 py-0.5 rounded bg-slate-800 text-[10px] font-bold text-slate-300 uppercase">{placeObj.name}</span>
+                            <span className="text-sm text-white font-semibold">{gm.title}</span>
+                            <span className={`text-[10px] font-bold ${statusColor}`}>● {statusLabel}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                            {gm.lastCheckTime && (
+                              <span>Checked: {new Date(gm.lastCheckTime).toLocaleString()}</span>
+                            )}
+                            {!isInUi && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold">NOT IN UI</span>
+                            )}
+                            {isInUi && (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold">IN SYNC</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                  {/* Show movies in UI but not in GitHub */}
+                  {movies.filter((m) => !ghMovies.some((gm) => gm.id === m.id || (gm.title?.toLowerCase() === m.title?.toLowerCase() && (gm.region || '') === (m.region || '')))).length > 0 && (
+                    <div className="px-4 py-2.5 rounded-xl bg-amber-950/30 border border-amber-800/30">
+                      <p className="text-xs text-amber-400 font-semibold mb-1.5">⚠️ Movies in UI but NOT in GitHub Actions:</p>
+                      {movies.filter((m) => !ghMovies.some((gm) => gm.id === m.id || (gm.title?.toLowerCase() === m.title?.toLowerCase() && (gm.region || '') === (m.region || '')))).map((m) => (
+                        <span key={m.id} className="inline-block mr-2 mb-1 px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold">
+                          {m.title} ({(m.region || '').toUpperCase()})
+                        </span>
+                      ))}
+                      <p className="text-[10px] text-slate-500 mt-1">Click <strong className="text-emerald-400">Sync to GH</strong> to push these to GitHub Actions.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ======= DELETED ITEMS / TRASH PANEL ======= */}
           {trashedMovies.length > 0 && (

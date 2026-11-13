@@ -1,9 +1,12 @@
 /**
- * /api/sync-movies — Saves the current tracked movies list to tracked-movies.json
- * in the GitHub repository so GitHub Actions can pick them up and check automatically.
+ * /api/sync-movies — Bidirectional sync between the browser UI and GitHub repo.
  *
- * Uses GitHub Contents API with a Personal Access Token (GITHUB_TOKEN secret).
- * This is the bridge between the browser UI (localStorage) and GitHub Actions.
+ * GET  → Returns the current tracked-movies.json from the GitHub repo
+ *         (so the UI can see what GitHub Actions is tracking)
+ * POST → Writes the UI's movie list to tracked-movies.json in the GitHub repo
+ *         (so GitHub Actions can track them even when browser is closed)
+ *
+ * Uses GitHub Contents API with a Personal Access Token (GITHUB_PAT env var).
  */
 
 import { NextResponse } from 'next/server';
@@ -14,7 +17,93 @@ export const runtime = 'nodejs';
 const GITHUB_REPO = process.env.GITHUB_REPO || 'Chethan886/BookMyShow-Tracker';
 const GITHUB_TOKEN = process.env.GITHUB_PAT || process.env.GITHUB_TOKEN || '';
 const FILE_PATH = 'tracked-movies.json';
+const STATE_PATH = 'state.json';
 const BRANCH = 'main';
+
+/**
+ * GET — Fetch what GitHub Actions is currently tracking
+ */
+export async function GET() {
+  try {
+    if (!GITHUB_TOKEN) {
+      // Fallback: read from local tracked-movies.json (works in dev / GHA runner)
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        const localFile = path.join(process.cwd(), FILE_PATH);
+        if (fs.existsSync(localFile)) {
+          const data = JSON.parse(fs.readFileSync(localFile, 'utf8'));
+          return NextResponse.json({ success: true, source: 'local', movies: data });
+        }
+      } catch {}
+      return NextResponse.json({ success: true, source: 'none', movies: [], message: 'No GITHUB_PAT configured and no local file found.' });
+    }
+
+    // Fetch tracked-movies.json from GitHub
+    const res = await fetch(
+      `https://api.github.com/repos/${GITHUB_REPO}/contents/${FILE_PATH}?ref=${BRANCH}`,
+      {
+        headers: {
+          Authorization: `Bearer ${GITHUB_TOKEN}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      }
+    );
+
+    if (!res.ok) {
+      return NextResponse.json({ success: true, source: 'github', movies: [], message: `tracked-movies.json not found in repo (${res.status})` });
+    }
+
+    const fileData = await res.json();
+    const content = Buffer.from(fileData.content, 'base64').toString('utf8');
+    const movies = JSON.parse(content);
+
+    // Also try to get state.json for runtime info (lastCheckTime, lastStatus, etc.)
+    let stateMovies = [];
+    try {
+      const stateRes = await fetch(
+        `https://api.github.com/repos/${GITHUB_REPO}/contents/${STATE_PATH}?ref=${BRANCH}`,
+        {
+          headers: {
+            Authorization: `Bearer ${GITHUB_TOKEN}`,
+            Accept: 'application/vnd.github.v3+json',
+          },
+        }
+      );
+      if (stateRes.ok) {
+        const stateFileData = await stateRes.json();
+        const stateContent = Buffer.from(stateFileData.content, 'base64').toString('utf8');
+        const stateJson = JSON.parse(stateContent);
+        stateMovies = stateJson.movies || [];
+      }
+    } catch {}
+
+    // Merge runtime info from state.json into tracked-movies.json data
+    const merged = movies.map(tm => {
+      const stateEntry = stateMovies.find(sm =>
+        sm.id === tm.id ||
+        (sm.title?.toLowerCase() === tm.title?.toLowerCase() && (sm.region || '') === (tm.region || ''))
+      );
+      if (stateEntry) {
+        return {
+          ...tm,
+          lastCheckTime: stateEntry.lastCheckTime || null,
+          lastStatus: stateEntry.lastStatus || 'NOT_YET_LISTED',
+          detectedTitle: stateEntry.detectedTitle || null,
+          bookingUrl: stateEntry.bookingUrl || null,
+          alertSent: stateEntry.alertSent || false,
+          lastAlertSentTime: stateEntry.lastAlertSentTime || null,
+        };
+      }
+      return tm;
+    });
+
+    return NextResponse.json({ success: true, source: 'github', movies: merged });
+  } catch (error) {
+    console.error('[SYNC:GET] Error:', error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  }
+}
 
 export async function POST(request) {
   try {
